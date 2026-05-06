@@ -1,1091 +1,881 @@
 <!DOCTYPE html>
-
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>نظام عضوية | جمعية تقنيات المركبات الكهربائية</title>
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;900&family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet">
-
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
+ 
 <!-- Firebase SDK -->
-
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
-
+  import { getFirestore, collection, addDoc, doc, updateDoc, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+ 
   const firebaseConfig = {
     apiKey: "AIzaSyADDzxKlSx_SwSbKXxKRI2W1_uX6oWPneo",
     authDomain: "aevtsa-membership.firebaseapp.com",
     projectId: "aevtsa-membership",
     storageBucket: "aevtsa-membership.firebasestorage.app",
     messagingSenderId: "1041942987412",
-    appId: "1:1041942987412:web:7a47640ebaf0113e9e3ef3",
-    measurementId: "G-TL8YWQCHGR"
+    appId: "1:1041942987412:web:7a47640ebaf0113e9e3ef3"
   };
-
+ 
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
-
   window.db = db;
   window.members = [];
   window.currentFilter = 'all';
-  window.currentViewId = null;
+  window.currentMember = null;
   window.formData = {};
   window.certs = [];
-  window.firebaseFns = { collection, addDoc, getDocs, doc, updateDoc, onSnapshot, query, orderBy, serverTimestamp };
-
+  window.memberPhotoFile = null;
+  window.firebaseFns = { collection, addDoc, doc, updateDoc, onSnapshot, query, orderBy, serverTimestamp };
+ 
   function startRealtimeSync() {
     const q = query(collection(db, "members"), orderBy("appTimestamp", "desc"));
     onSnapshot(q, (snapshot) => {
       window.members = [];
-      snapshot.forEach((docSnap) => {
-        window.members.push({ firestoreId: docSnap.id, ...docSnap.data() });
-      });
-      renderAdmin();
-      if (window.currentViewId) renderProfile(window.currentViewId);
-    }, (error) => {
-      console.error("Firestore error:", error);
+      snapshot.forEach((docSnap) => { window.members.push({ firestoreId: docSnap.id, ...docSnap.data() }); });
+      if (document.getElementById('page-admin').classList.contains('active')) renderAdmin();
+      if (window.currentMember) {
+        const updated = window.members.find(m => m.id === window.currentMember.id);
+        if (updated) { window.currentMember = updated; renderMemberProfile(); }
+      }
     });
   }
-
+ 
   window.submitToFirebase = async function(memberData) {
-    try {
-      const { addDoc, collection, serverTimestamp } = window.firebaseFns;
-      const docRef = await addDoc(collection(db, "members"), {
-        ...memberData,
-        appTimestamp: serverTimestamp(),
-        createdAt: new Date().toISOString()
-      });
-      return docRef.id;
-    } catch(e) {
-      console.error("Submit error:", e);
-      throw e;
-    }
+    const { addDoc, collection, serverTimestamp } = window.firebaseFns;
+    const docRef = await addDoc(collection(db, "members"), { ...memberData, appTimestamp: serverTimestamp(), createdAt: new Date().toISOString() });
+    return docRef.id;
   };
-
+ 
   window.updateStatusInFirebase = async function(firestoreId, status) {
-    try {
-      const { doc, updateDoc } = window.firebaseFns;
-      const updates = { status };
-      if (status === 'approved') updates.approvalDate = new Date().toLocaleDateString('ar-SA');
-      await updateDoc(doc(db, "members", firestoreId), updates);
-    } catch(e) {
-      console.error("Update error:", e);
-      alert('حدث خطأ أثناء التحديث.');
-    }
+    const { doc, updateDoc } = window.firebaseFns;
+    const updates = { status };
+    if (status === 'approved') updates.approvalDate = new Date().toLocaleDateString('ar-SA');
+    await updateDoc(doc(db, "members", firestoreId), updates);
   };
-
-  document.addEventListener('DOMContentLoaded', () => {
-    startRealtimeSync();
-    renderCerts();
-  });
+ 
+  window.findMember = function(email, memberId) {
+    return window.members.find(m => m.email && m.email.toLowerCase() === email.toLowerCase() && m.id && m.id.toUpperCase() === memberId.toUpperCase());
+  };
+ 
+  document.addEventListener('DOMContentLoaded', () => { startRealtimeSync(); renderCerts(); showPage('landing'); });
 </script>
-
+ 
 <style>
-  :root {
-    --green: #00C896; --green-dark: #009E78; --green-light: #00EDAF;
-    --navy: #0A1628; --navy-mid: #0F2040; --navy-light: #162B50;
-    --gold: #F5C842; --gold-light: #FFE080;
-    --white: #FFFFFF; --gray-100: #F0F4F8; --gray-300: #CBD5E0;
-    --gray-500: #718096; --gray-700: #2D3748;
-    --danger: #E53E3E; --success: #38A169; --warning: #DD6B20;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Cairo', sans-serif; background: var(--gray-100); color: var(--navy); min-height: 100vh; }
-
-  /* ===== LOGIN OVERLAY ===== */
-  #loginOverlay {
-    display: none;
-    position: fixed; inset: 0;
-    background: linear-gradient(135deg, var(--navy) 0%, var(--navy-mid) 60%, #0D3060 100%);
-    z-index: 500;
-    align-items: center; justify-content: center;
-  }
-  #loginOverlay.show { display: flex; }
-  .login-box {
-    background: rgba(255,255,255,0.05);
-    border: 1px solid rgba(0,200,150,0.25);
-    backdrop-filter: blur(10px);
-    border-radius: 24px;
-    padding: 40px 36px;
-    width: 90%; max-width: 400px;
-    text-align: center;
-    box-shadow: 0 30px 80px rgba(0,0,0,0.4);
-    animation: loginIn 0.4s ease;
-  }
-  @keyframes loginIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-  .login-icon { width: 64px; height: 64px; background: var(--green); border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 28px; margin: 0 auto 16px; }
-  .login-title { color: white; font-size: 20px; font-weight: 800; margin-bottom: 4px; }
-  .login-sub { color: var(--green); font-size: 12px; margin-bottom: 28px; }
-  .login-field { margin-bottom: 14px; text-align: right; }
-  .login-field label { display: block; color: rgba(255,255,255,0.7); font-size: 12px; font-weight: 600; margin-bottom: 6px; }
-  .login-field input {
-    width: 100%; padding: 12px 14px;
-    background: rgba(255,255,255,0.08);
-    border: 1.5px solid rgba(255,255,255,0.15);
-    border-radius: 10px; color: white;
-    font-family: 'Cairo', sans-serif; font-size: 14px;
-    outline: none; transition: all 0.2s;
-  }
-  .login-field input:focus { border-color: var(--green); background: rgba(0,200,150,0.08); }
-  .login-field input::placeholder { color: rgba(255,255,255,0.3); }
-  .login-btn {
-    width: 100%; padding: 13px;
-    background: var(--green); color: white;
-    border: none; border-radius: 10px;
-    font-family: 'Cairo', sans-serif; font-size: 15px; font-weight: 700;
-    cursor: pointer; margin-top: 6px; transition: all 0.2s;
-  }
-  .login-btn:hover { background: var(--green-dark); transform: translateY(-1px); }
-  .login-error {
-    background: rgba(229,62,62,0.15); border: 1px solid rgba(229,62,62,0.4);
-    color: #FC8181; border-radius: 8px; padding: 10px 14px;
-    font-size: 13px; margin-bottom: 14px; display: none;
-  }
-  .login-error.show { display: block; }
-
-  .top-nav {
-    background: var(--navy); padding: 10px 24px;
-    display: flex; align-items: center; justify-content: space-between;
-    position: sticky; top: 0; z-index: 100;
-    box-shadow: 0 2px 20px rgba(0,200,150,0.15);
-  }
-  .nav-logo { display: flex; align-items: center; gap: 12px; }
-  .nav-logo .logo-icon { width: 40px; height: 40px; background: var(--green); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; }
-  .nav-logo .logo-text { color: white; }
-  .nav-logo .logo-text .title { font-size: 13px; font-weight: 700; }
-  .nav-logo .logo-text .sub { font-size: 10px; color: var(--green); }
-  .nav-right { display: flex; align-items: center; gap: 10px; }
-  .cloud-badge { display: flex; align-items: center; gap: 5px; background: rgba(0,200,150,0.15); border: 1px solid rgba(0,200,150,0.3); color: var(--green); padding: 4px 10px; border-radius: 20px; font-size: 11px; }
-  .nav-tabs { display: flex; gap: 4px; }
-  .nav-tab { padding: 7px 16px; border-radius: 8px; border: none; cursor: pointer; font-family: 'Cairo', sans-serif; font-size: 13px; color: var(--gray-300); background: transparent; transition: all 0.2s; }
-  .nav-tab:hover { color: white; background: var(--navy-light); }
-  .nav-tab.active { background: var(--green); color: white; font-weight: 600; }
-  .btn-logout { padding: 6px 14px; border-radius: 8px; border: 1px solid rgba(229,62,62,0.4); background: rgba(229,62,62,0.1); color: #FC8181; font-family: 'Cairo', sans-serif; font-size: 12px; cursor: pointer; display: none; transition: all 0.2s; }
-  .btn-logout:hover { background: var(--danger); color: white; }
-  .btn-logout.show { display: block; }
-
-  .page { display: none; }
-  .page.active { display: block; }
-
-  .reg-hero {
-    background: linear-gradient(135deg, var(--navy) 0%, var(--navy-mid) 50%, #0D3060 100%);
-    padding: 50px 24px 60px; text-align: center; position: relative; overflow: hidden;
-  }
-  .reg-hero::before { content: ''; position: absolute; top: -50px; right: -50px; width: 300px; height: 300px; background: radial-gradient(circle, rgba(0,200,150,0.15) 0%, transparent 70%); border-radius: 50%; }
-  .reg-badge { display: inline-flex; align-items: center; gap: 8px; background: rgba(0,200,150,0.15); border: 1px solid rgba(0,200,150,0.4); color: var(--green-light); padding: 6px 16px; border-radius: 50px; font-size: 12px; margin-bottom: 20px; }
-  .reg-hero h1 { color: white; font-size: 32px; font-weight: 900; margin-bottom: 10px; line-height: 1.3; }
-  .reg-hero h1 span { color: var(--green-light); }
-  .reg-hero p { color: var(--gray-300); font-size: 15px; max-width: 500px; margin: 0 auto 10px; }
-  .ministry-badge { display: inline-flex; align-items: center; gap: 8px; background: rgba(245,200,66,0.1); border: 1px solid rgba(245,200,66,0.3); color: var(--gold); padding: 5px 14px; border-radius: 50px; font-size: 11px; margin-top: 8px; }
-
-  .reg-container { max-width: 760px; margin: -30px auto 40px; padding: 0 16px; position: relative; z-index: 2; }
-  .reg-card { background: white; border-radius: 20px; box-shadow: 0 20px 60px rgba(10,22,40,0.15); overflow: hidden; }
-  .reg-steps { background: var(--navy); padding: 20px 28px; display: flex; align-items: center; justify-content: center; gap: 0; }
-  .step-item { display: flex; align-items: center; gap: 0; }
-  .step-circle { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; font-family: 'Cairo', sans-serif; background: var(--navy-light); color: var(--gray-500); transition: all 0.3s; }
-  .step-circle.done { background: var(--green-dark); color: white; }
-  .step-circle.active { background: var(--green); color: white; box-shadow: 0 0 0 4px rgba(0,200,150,0.25); }
-  .step-label { color: var(--gray-500); font-size: 11px; margin-right: 8px; margin-left: 8px; transition: all 0.3s; white-space: nowrap; }
-  .step-label.active { color: var(--green); font-weight: 600; }
-  .step-connector { width: 40px; height: 2px; background: var(--navy-light); }
-  .step-connector.done { background: var(--green-dark); }
-
-  .reg-form-body { padding: 32px 28px; }
-  .form-step { display: none; }
-  .form-step.active { display: block; }
-  .step-title { font-size: 18px; font-weight: 700; color: var(--navy); margin-bottom: 6px; }
-  .step-subtitle { font-size: 13px; color: var(--gray-500); margin-bottom: 24px; }
-  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-  .form-grid.three { grid-template-columns: 1fr 1fr 1fr; }
-  .form-group { display: flex; flex-direction: column; gap: 6px; }
-  .form-group.span2 { grid-column: span 2; }
-  .form-group.span3 { grid-column: span 3; }
-  label { font-size: 13px; font-weight: 600; color: var(--navy); }
-  label .req { color: var(--danger); margin-right: 2px; }
-  input[type=text], input[type=email], input[type=tel], input[type=date], select, textarea {
-    border: 1.5px solid var(--gray-300); border-radius: 10px;
-    padding: 11px 14px; font-family: 'Cairo', sans-serif; font-size: 13px;
-    color: var(--navy); background: white; outline: none; transition: all 0.2s; width: 100%;
-  }
-  input:focus, select:focus, textarea:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(0,200,150,0.12); }
-  textarea { resize: vertical; min-height: 80px; }
-
-  .upload-area { border: 2px dashed var(--gray-300); border-radius: 10px; padding: 20px; text-align: center; cursor: pointer; transition: all 0.2s; background: var(--gray-100); }
-  .upload-area:hover { border-color: var(--green); background: rgba(0,200,150,0.05); }
-  .upload-area .icon { font-size: 28px; margin-bottom: 8px; }
-  .upload-area p { font-size: 12px; color: var(--gray-500); }
-  .upload-area p strong { color: var(--green); }
-  .upload-area input { display: none; }
-  .uploaded-file { display: none; align-items: center; gap: 8px; background: rgba(0,200,150,0.08); border: 1px solid rgba(0,200,150,0.3); border-radius: 8px; padding: 8px 12px; margin-top: 8px; font-size: 12px; color: var(--green-dark); }
-
-  .cert-list { display: flex; flex-direction: column; gap: 10px; }
-  .cert-item { background: var(--gray-100); border-radius: 10px; padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; }
-  .cert-item-info { font-size: 12px; }
-  .cert-item-info strong { display: block; font-size: 13px; color: var(--navy); }
-  .cert-item-info span { color: var(--gray-500); }
-  .btn-remove-cert { width: 26px; height: 26px; border-radius: 50%; background: rgba(229,62,62,0.1); color: var(--danger); border: none; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; }
-
-  .form-nav { display: flex; justify-content: space-between; align-items: center; margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--gray-300); }
-  .btn { padding: 11px 24px; border-radius: 10px; border: none; font-family: 'Cairo', sans-serif; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 8px; }
-  .btn-primary { background: var(--green); color: white; }
-  .btn-primary:hover { background: var(--green-dark); transform: translateY(-1px); }
-  .btn-secondary { background: var(--gray-100); color: var(--navy); border: 1px solid var(--gray-300); }
-  .btn-secondary:hover { background: var(--gray-300); }
-  .btn-danger { background: rgba(229,62,62,0.1); color: var(--danger); }
-  .btn-danger:hover { background: var(--danger); color: white; }
-  .btn-gold { background: var(--gold); color: var(--navy); }
-  .btn-gold:hover { background: var(--gold-light); }
-  .btn-sm { padding: 7px 14px; font-size: 12px; border-radius: 8px; }
-  .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
-
-  .consent-box { background: rgba(0,200,150,0.06); border: 1px solid rgba(0,200,150,0.25); border-radius: 12px; padding: 16px; }
-  .consent-box label { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-weight: 400; font-size: 13px; }
-  .consent-box input[type=checkbox] { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--green); flex-shrink: 0; }
-
-  .success-screen { text-align: center; padding: 48px 28px; }
-  .success-icon { width: 80px; height: 80px; background: rgba(0,200,150,0.12); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 36px; margin: 0 auto 20px; animation: pulse 2s infinite; }
-  @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(0,200,150,0.3); } 50% { box-shadow: 0 0 0 16px rgba(0,200,150,0); } }
-  .success-screen h2 { font-size: 24px; font-weight: 800; color: var(--navy); margin-bottom: 10px; }
-  .success-screen p { color: var(--gray-500); font-size: 14px; margin-bottom: 6px; }
-  .pending-badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(221,107,32,0.1); border: 1px solid rgba(221,107,32,0.3); color: var(--warning); padding: 8px 18px; border-radius: 50px; font-size: 13px; font-weight: 600; margin: 16px 0; }
-
-  .alert { display: none; padding: 12px 16px; border-radius: 10px; font-size: 13px; margin-bottom: 16px; align-items: center; gap: 10px; }
-  .alert.show { display: flex; }
-  .alert.success { background: rgba(56,161,105,0.1); border: 1px solid rgba(56,161,105,0.3); color: var(--success); }
-  .alert.error { background: rgba(229,62,62,0.1); border: 1px solid rgba(229,62,62,0.3); color: var(--danger); }
-
-  /* ADMIN */
-  .admin-wrap { display: flex; min-height: calc(100vh - 55px); }
-  .admin-sidebar { width: 220px; background: var(--navy); flex-shrink: 0; padding: 20px 0; display: flex; flex-direction: column; }
-  .sidebar-menu { flex: 1; }
-  .sidebar-item { display: flex; align-items: center; gap: 10px; padding: 11px 20px; color: var(--gray-300); font-size: 13px; cursor: pointer; transition: all 0.2s; border-right: 3px solid transparent; }
-  .sidebar-item:hover { color: white; background: rgba(255,255,255,0.05); }
-  .sidebar-item.active { color: var(--green); border-right-color: var(--green); background: rgba(0,200,150,0.08); }
-  .sidebar-footer { padding: 16px 20px; border-top: 1px solid var(--navy-light); }
-  .sidebar-footer p { color: var(--gray-500); font-size: 11px; line-height: 1.6; }
-  .admin-main { flex: 1; padding: 28px; overflow-x: auto; }
-  .admin-header { margin-bottom: 24px; }
-  .admin-header h2 { font-size: 22px; font-weight: 800; color: var(--navy); }
-  .admin-header p { font-size: 13px; color: var(--gray-500); margin-top: 4px; }
-
-  .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
-  .stat-card { background: white; border-radius: 14px; padding: 18px 20px; border-right: 4px solid transparent; box-shadow: 0 2px 10px rgba(0,0,0,0.06); }
-  .stat-card.green { border-right-color: var(--green); }
-  .stat-card.gold { border-right-color: var(--gold); }
-  .stat-card.orange { border-right-color: var(--warning); }
-  .stat-card.red { border-right-color: var(--danger); }
-  .stat-value { font-size: 32px; font-weight: 900; color: var(--navy); }
-  .stat-label { font-size: 12px; color: var(--gray-500); margin-top: 4px; }
-
-  .admin-section { background: white; border-radius: 14px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.06); }
-  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; flex-wrap: wrap; gap: 10px; }
-  .section-header h3 { font-size: 16px; font-weight: 700; color: var(--navy); }
-  .filter-row { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
-  .filter-btn { padding: 6px 14px; border-radius: 8px; border: 1.5px solid var(--gray-300); background: white; font-family: 'Cairo', sans-serif; font-size: 12px; cursor: pointer; color: var(--gray-700); transition: all 0.2s; }
-  .filter-btn.active { background: var(--navy); color: white; border-color: var(--navy); }
-  .filter-btn.pending.active { background: var(--warning); border-color: var(--warning); }
-  .filter-btn.approved.active { background: var(--success); border-color: var(--success); }
-  .filter-btn.rejected.active { background: var(--danger); border-color: var(--danger); }
-
-  .members-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .members-table th { text-align: right; padding: 10px 14px; border-bottom: 2px solid var(--gray-100); color: var(--gray-500); font-weight: 600; font-size: 11px; white-space: nowrap; }
-  .members-table td { padding: 13px 14px; border-bottom: 1px solid var(--gray-100); color: var(--navy); vertical-align: middle; }
-  .members-table tr:last-child td { border-bottom: none; }
-  .members-table tr:hover td { background: rgba(0,200,150,0.03); }
-  .member-avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; color: white; flex-shrink: 0; }
-  .member-name-cell { display: flex; align-items: center; gap: 10px; }
-  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: nowrap; }
-  .badge.pending { background: rgba(221,107,32,0.12); color: var(--warning); }
-  .badge.approved { background: rgba(56,161,105,0.12); color: var(--success); }
-  .badge.rejected { background: rgba(229,62,62,0.12); color: var(--danger); }
-  .action-btns { display: flex; gap: 6px; }
-  .btn-action { width: 30px; height: 30px; border-radius: 7px; border: none; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
-  .btn-approve { background: rgba(56,161,105,0.1); color: var(--success); }
-  .btn-approve:hover { background: var(--success); color: white; }
-  .btn-reject { background: rgba(229,62,62,0.1); color: var(--danger); }
-  .btn-reject:hover { background: var(--danger); color: white; }
-  .btn-view { background: rgba(10,22,40,0.08); color: var(--navy); }
-  .btn-view:hover { background: var(--navy); color: white; }
-
-  /* PROFILE */
-  .profile-wrap { max-width: 860px; margin: 0 auto; padding: 28px 16px; }
-  .profile-header-card { background: linear-gradient(135deg, var(--navy) 0%, var(--navy-mid) 100%); border-radius: 20px; padding: 32px; margin-bottom: 20px; display: flex; align-items: center; gap: 24px; position: relative; overflow: hidden; }
-  .profile-header-card::after { content: '⚡'; font-size: 120px; position: absolute; left: -10px; top: -10px; opacity: 0.04; line-height: 1; }
-  .profile-avatar-big { width: 90px; height: 90px; border-radius: 50%; border: 4px solid var(--green); flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 36px; font-weight: 800; color: white; }
-  .profile-info { flex: 1; }
-  .profile-info h2 { color: white; font-size: 24px; font-weight: 800; }
-  .profile-info .job { color: var(--green-light); font-size: 14px; margin-top: 4px; }
-  .profile-info .meta { color: var(--gray-300); font-size: 12px; margin-top: 8px; display: flex; gap: 16px; flex-wrap: wrap; }
-  .member-id-badge { background: rgba(0,200,150,0.15); border: 1px solid rgba(0,200,150,0.4); color: var(--green); padding: 4px 12px; border-radius: 8px; font-size: 12px; font-weight: 700; letter-spacing: 1px; display: inline-block; margin-top: 8px; }
-  .profile-status-badge { display: flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 10px; font-size: 13px; font-weight: 600; flex-shrink: 0; }
-  .profile-status-badge.approved { background: rgba(56,161,105,0.2); color: #68D391; }
-  .profile-status-badge.pending { background: rgba(221,107,32,0.2); color: #F6AD55; }
-  .profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
-  .profile-card { background: white; border-radius: 14px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.06); }
-  .profile-card h3 { font-size: 14px; font-weight: 700; color: var(--navy); margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
-  .info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--gray-100); font-size: 13px; }
-  .info-row:last-child { border-bottom: none; }
-  .info-row .info-label { color: var(--gray-500); }
-  .info-row .info-value { color: var(--navy); font-weight: 500; }
-  .cert-badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(10,22,40,0.06); border-radius: 8px; padding: 6px 10px; margin: 4px; font-size: 12px; }
-
-  /* CARD */
-  .card-wrap { display: flex; justify-content: center; padding: 20px 0; }
-  .membership-card { width: 380px; background: linear-gradient(135deg, var(--navy) 0%, #0D3060 60%, #083055 100%); border-radius: 18px; padding: 24px; position: relative; overflow: hidden; box-shadow: 0 20px 50px rgba(10,22,40,0.4); color: white; font-family: 'Cairo', sans-serif; }
-  .membership-card::before { content: ''; position: absolute; top: -60px; right: -60px; width: 200px; height: 200px; background: radial-gradient(circle, rgba(0,200,150,0.25) 0%, transparent 70%); border-radius: 50%; }
-  .membership-card::after { content: '⚡'; font-size: 100px; position: absolute; left: -15px; bottom: -20px; opacity: 0.06; line-height: 1; }
-  .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
-  .card-logo { display: flex; align-items: center; gap: 8px; }
-  .card-logo .logo-box { width: 32px; height: 32px; background: var(--green); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; }
-  .card-logo .logo-name { font-size: 10px; line-height: 1.3; }
-  .card-logo .logo-name strong { display: block; font-size: 11px; }
-  .card-type { font-size: 10px; color: var(--green); background: rgba(0,200,150,0.15); border: 1px solid rgba(0,200,150,0.3); padding: 3px 10px; border-radius: 20px; }
-  .card-avatar { width: 56px; height: 56px; border-radius: 50%; border: 3px solid var(--green); display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 800; color: white; margin-bottom: 10px; background: rgba(0,200,150,0.15); }
-  .card-name { font-size: 17px; font-weight: 800; margin-bottom: 2px; }
-  .card-job { font-size: 11px; color: rgba(255,255,255,0.6); margin-bottom: 16px; }
-  .card-footer { display: flex; justify-content: space-between; align-items: flex-end; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.1); }
-  .card-id-section .label { font-size: 9px; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 1px; }
-  .card-id-section .value { font-size: 16px; font-weight: 700; color: var(--green); letter-spacing: 2px; }
-  .card-qr { width: 52px; height: 52px; background: white; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 28px; }
-  .card-valid { font-size: 9px; color: rgba(255,255,255,0.5); margin-top: 4px; }
-  .card-strip { height: 4px; background: linear-gradient(90deg, var(--green), var(--gold)); border-radius: 2px; margin-bottom: 18px; }
-  .print-btn-wrap { text-align: center; margin-top: 16px; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
-
-  /* MODAL */
-  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(10,22,40,0.7); z-index: 200; align-items: center; justify-content: center; }
-  .modal-overlay.open { display: flex; }
-  .modal { background: white; border-radius: 18px; width: 90%; max-width: 540px; max-height: 90vh; overflow-y: auto; animation: modalIn 0.25s ease; }
-  @keyframes modalIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-  .modal-header { background: var(--navy); padding: 20px 24px; border-radius: 18px 18px 0 0; display: flex; align-items: center; justify-content: space-between; }
-  .modal-header h3 { color: white; font-size: 16px; font-weight: 700; }
-  .modal-close { background: rgba(255,255,255,0.1); border: none; color: white; width: 32px; height: 32px; border-radius: 8px; cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center; }
-  .modal-body { padding: 24px; }
-
-  /* LOADING */
-  .loading-overlay { display: none; position: fixed; inset: 0; background: rgba(10,22,40,0.6); z-index: 300; align-items: center; justify-content: center; flex-direction: column; gap: 16px; }
-  .loading-overlay.show { display: flex; }
-  .spinner { width: 48px; height: 48px; border: 4px solid rgba(0,200,150,0.2); border-top: 4px solid var(--green); border-radius: 50%; animation: spin 0.8s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .loading-text { color: white; font-size: 14px; font-weight: 600; }
-
-  @media (max-width: 680px) {
-    .form-grid { grid-template-columns: 1fr; }
-    .form-grid.three { grid-template-columns: 1fr 1fr; }
-    .form-group.span2, .form-group.span3 { grid-column: span 1; }
-    .stats-grid { grid-template-columns: 1fr 1fr; }
-    .profile-grid { grid-template-columns: 1fr; }
-    .admin-wrap { flex-direction: column; }
-    .admin-sidebar { width: 100%; }
-    .profile-header-card { flex-direction: column; text-align: center; }
-    .membership-card { width: 100%; max-width: 380px; }
-    .step-label { display: none; }
-    .step-connector { width: 20px; }
-    .nav-right { flex-direction: column; gap: 4px; align-items: flex-end; }
-  }
-
-  @media print {
-    body * { visibility: hidden; }
-    .membership-card, .membership-card * { visibility: visible; }
-    .membership-card { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); }
-  }
+:root {
+  --green: #1B5E20; --green2: #2E7D32; --green3: #43A047;
+  --navy: #003366; --navy2: #1A4A7A;
+  --gold: #B8860B; --gold2: #DAA520;
+  --white: #fff; --g50: #F8FAF8; --g100: #EEF2EE; --g300: #C8D5C8; --g500: #6B7C6B; --g700: #2D3D2D;
+  --danger: #C62828; --success: #2E7D32; --warning: #E65100;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body { font-family:'Cairo',sans-serif; background:var(--g50); color:var(--g700); min-height:100vh; }
+.page { display:none; }
+.page.active { display:block; }
+ 
+.top-nav { background:white; padding:12px 28px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:100; box-shadow:0 2px 12px rgba(27,94,32,0.1); border-bottom:3px solid var(--green); }
+.nav-logo { display:flex; align-items:center; gap:12px; cursor:pointer; }
+.nav-logo-icon { width:44px; height:44px; background:linear-gradient(135deg,var(--green),var(--navy)); border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:22px; }
+.nav-logo-text .t { font-size:13px; font-weight:800; color:var(--navy); }
+.nav-logo-text .s { font-size:10px; color:var(--green); }
+.nav-actions { display:flex; gap:10px; align-items:center; }
+.nav-btn { padding:8px 18px; border-radius:8px; border:none; font-family:'Cairo',sans-serif; font-size:13px; font-weight:600; cursor:pointer; transition:all 0.2s; }
+.nb-outline { background:transparent; color:var(--green); border:2px solid var(--green); }
+.nb-outline:hover { background:var(--green); color:white; }
+.nb-solid { background:var(--green); color:white; }
+.nb-solid:hover { background:var(--green2); }
+.nb-danger { background:rgba(198,40,40,0.1); color:var(--danger); border:1px solid rgba(198,40,40,0.3); }
+.nb-danger:hover { background:var(--danger); color:white; }
+.nav-user { display:flex; align-items:center; gap:8px; background:var(--g100); border-radius:8px; padding:6px 12px; font-size:12px; font-weight:600; color:var(--green); }
+ 
+/* LANDING */
+.hero { background:linear-gradient(135deg,var(--navy) 0%,var(--green) 100%); padding:80px 28px 100px; text-align:center; position:relative; overflow:hidden; }
+.hero::before { content:''; position:absolute; inset:0; background:url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23ffffff' fill-opacity='0.03'%3E%3Ccircle cx='30' cy='30' r='20'/%3E%3C/g%3E%3C/svg%3E"); }
+.hero-badge { display:inline-flex; align-items:center; gap:8px; background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.25); color:rgba(255,255,255,0.9); padding:6px 18px; border-radius:50px; font-size:12px; margin-bottom:24px; position:relative; }
+.hero h1 { color:white; font-size:40px; font-weight:900; margin-bottom:14px; line-height:1.2; position:relative; }
+.hero h1 span { color:#7DD67E; }
+.hero p { color:rgba(255,255,255,0.8); font-size:15px; max-width:540px; margin:0 auto 40px; line-height:1.8; position:relative; }
+ 
+.landing-cards { display:flex; gap:20px; justify-content:center; flex-wrap:wrap; position:relative; max-width:920px; margin:0 auto; }
+.lcard { background:white; border-radius:20px; padding:34px 26px; width:260px; cursor:pointer; box-shadow:0 20px 60px rgba(0,0,0,0.25); transition:all 0.3s; text-align:center; position:relative; overflow:hidden; }
+.lcard:hover { transform:translateY(-8px); box-shadow:0 30px 80px rgba(0,0,0,0.3); }
+.lcard::before { content:''; position:absolute; top:0; left:0; right:0; height:4px; }
+.lcard.reg::before { background:linear-gradient(90deg,var(--green),var(--green3)); }
+.lcard.mlogin::before { background:linear-gradient(90deg,var(--navy),var(--navy2)); }
+.lcard.alogin::before { background:linear-gradient(90deg,var(--gold),var(--gold2)); }
+.lcard-icon { width:72px; height:72px; border-radius:20px; display:flex; align-items:center; justify-content:center; font-size:32px; margin:0 auto 18px; }
+.lcard.reg .lcard-icon { background:rgba(27,94,32,0.1); }
+.lcard.mlogin .lcard-icon { background:rgba(0,51,102,0.1); }
+.lcard.alogin .lcard-icon { background:rgba(184,134,11,0.1); }
+.lcard h3 { font-size:17px; font-weight:800; color:var(--g700); margin-bottom:10px; }
+.lcard p { font-size:12px; color:var(--g500); line-height:1.7; margin-bottom:20px; }
+.lcard-btn { display:block; width:100%; padding:11px; border-radius:10px; font-family:'Cairo',sans-serif; font-size:13px; font-weight:700; cursor:pointer; border:none; transition:all 0.2s; }
+.lcard.reg .lcard-btn { background:var(--green); color:white; }
+.lcard.mlogin .lcard-btn { background:var(--navy); color:white; }
+.lcard.alogin .lcard-btn { background:var(--gold); color:white; }
+ 
+.about-sec { background:white; padding:60px 28px; }
+.mem-types-sec { background:var(--g50); padding:60px 28px; }
+.sec-title { text-align:center; font-size:24px; font-weight:900; color:var(--navy); margin-bottom:6px; }
+.sec-sub { text-align:center; font-size:13px; color:var(--g500); margin-bottom:36px; }
+.about-grid, .mt-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:20px; max-width:960px; margin:0 auto; }
+.about-card, .mt-card { background:var(--g50); border-radius:14px; padding:26px; border-right:4px solid var(--green); }
+.mt-card { background:white; box-shadow:0 4px 20px rgba(0,0,0,0.06); }
+.about-card h4, .mt-card h4 { font-size:14px; font-weight:800; color:var(--navy); margin-bottom:8px; }
+.about-card p, .mt-card p { font-size:12px; color:var(--g500); line-height:1.8; }
+ 
+/* OVERLAYS */
+.overlay { display:none; position:fixed; inset:0; background:rgba(0,20,0,0.7); backdrop-filter:blur(4px); z-index:400; align-items:center; justify-content:center; }
+.overlay.open { display:flex; }
+.obox { background:white; border-radius:22px; width:90%; max-width:420px; box-shadow:0 40px 100px rgba(0,0,0,0.3); animation:oIn 0.3s ease; overflow:hidden; }
+@keyframes oIn { from{transform:translateY(20px) scale(0.97);opacity:0} to{transform:none;opacity:1} }
+.ohead { padding:22px 26px 18px; border-bottom:1px solid var(--g100); }
+.ohead h3 { font-size:17px; font-weight:800; color:var(--navy); }
+.ohead p { font-size:12px; color:var(--g500); margin-top:3px; }
+.obody { padding:22px 26px 26px; }
+.ofield { margin-bottom:14px; }
+.ofield label { display:block; font-size:12px; font-weight:700; color:var(--g700); margin-bottom:5px; }
+.ofield input, .ofield select { width:100%; padding:11px 13px; border:1.5px solid var(--g300); border-radius:9px; font-family:'Cairo',sans-serif; font-size:13px; color:var(--g700); outline:none; transition:all 0.2s; }
+.ofield input:focus, .ofield select:focus { border-color:var(--green); box-shadow:0 0 0 3px rgba(27,94,32,0.1); }
+.obtn { width:100%; padding:13px; border-radius:10px; border:none; font-family:'Cairo',sans-serif; font-size:14px; font-weight:700; cursor:pointer; transition:all 0.2s; margin-top:4px; }
+.obtn.g { background:var(--green); color:white; }
+.obtn.b { background:var(--navy); color:white; }
+.obtn.gold { background:var(--gold); color:white; }
+.oerr { background:rgba(198,40,40,0.08); border:1px solid rgba(198,40,40,0.25); color:var(--danger); border-radius:8px; padding:10px 13px; font-size:12px; margin-bottom:12px; display:none; }
+.oerr.show { display:block; }
+.oclose { text-align:center; margin-top:12px; }
+.oclose a { font-size:12px; color:var(--g500); cursor:pointer; text-decoration:underline; }
+ 
+/* REGISTER */
+.reg-wrap { max-width:800px; margin:0 auto; padding:30px 14px 60px; }
+.reg-ptitle { text-align:center; margin-bottom:28px; }
+.reg-ptitle h2 { font-size:24px; font-weight:900; color:var(--navy); }
+.reg-ptitle p { font-size:12px; color:var(--g500); margin-top:5px; }
+.reg-card { background:white; border-radius:20px; box-shadow:0 8px 40px rgba(0,0,0,0.08); overflow:hidden; }
+.steps-bar { background:var(--navy); padding:16px 26px; display:flex; align-items:center; justify-content:center; }
+.si { display:flex; align-items:center; }
+.sc { width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; background:rgba(255,255,255,0.15); color:rgba(255,255,255,0.6); transition:all 0.3s; }
+.sc.done { background:var(--green3); color:white; }
+.sc.active { background:white; color:var(--navy); box-shadow:0 0 0 4px rgba(255,255,255,0.2); }
+.sl { color:rgba(255,255,255,0.6); font-size:11px; margin:0 8px; white-space:nowrap; }
+.sl.active { color:white; font-weight:700; }
+.sconn { width:36px; height:2px; background:rgba(255,255,255,0.15); }
+.sconn.done { background:var(--green3); }
+ 
+.fbody { padding:30px 26px; }
+.fstep { display:none; }
+.fstep.active { display:block; }
+.ftitle { font-size:16px; font-weight:800; color:var(--navy); margin-bottom:3px; }
+.fsub { font-size:12px; color:var(--g500); margin-bottom:22px; }
+.fg { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.fg3 { grid-template-columns:1fr 1fr 1fr; }
+.fgroup { display:flex; flex-direction:column; gap:5px; }
+.fgroup.sp2 { grid-column:span 2; }
+.fgroup.sp3 { grid-column:span 3; }
+.fgroup label { font-size:12px; font-weight:700; color:var(--g700); }
+.fgroup label .req { color:var(--danger); }
+.fgroup input, .fgroup select, .fgroup textarea { border:1.5px solid var(--g300); border-radius:9px; padding:10px 12px; font-family:'Cairo',sans-serif; font-size:13px; color:var(--g700); background:white; outline:none; transition:all 0.2s; width:100%; }
+.fgroup input:focus, .fgroup select:focus, .fgroup textarea:focus { border-color:var(--green); box-shadow:0 0 0 3px rgba(27,94,32,0.1); }
+.fgroup textarea { resize:vertical; min-height:80px; }
+ 
+.photo-area { border:2px dashed var(--g300); border-radius:14px; padding:22px; text-align:center; cursor:pointer; transition:all 0.2s; background:var(--g50); margin-bottom:18px; }
+.photo-area:hover { border-color:var(--green); background:rgba(27,94,32,0.03); }
+.photo-prev { width:88px; height:88px; border-radius:50%; object-fit:cover; border:3px solid var(--green); margin:0 auto 10px; display:none; }
+.photo-icon { font-size:34px; margin-bottom:8px; }
+.photo-txt { font-size:12px; color:var(--g500); }
+.photo-txt strong { color:var(--green); }
+ 
+.cert-list { display:flex; flex-direction:column; gap:8px; margin-bottom:14px; }
+.citem { background:var(--g50); border-radius:9px; padding:10px 13px; display:flex; align-items:center; justify-content:space-between; }
+.citem strong { display:block; font-size:13px; color:var(--navy); }
+.citem span { font-size:11px; color:var(--g500); }
+.crem { width:26px; height:26px; border-radius:50%; background:rgba(198,40,40,0.1); color:var(--danger); border:none; cursor:pointer; font-size:14px; display:flex; align-items:center; justify-content:center; }
+ 
+.fnav { display:flex; justify-content:space-between; align-items:center; margin-top:26px; padding-top:18px; border-top:1px solid var(--g100); }
+.btn { padding:10px 20px; border-radius:9px; border:none; font-family:'Cairo',sans-serif; font-size:13px; font-weight:700; cursor:pointer; transition:all 0.2s; display:inline-flex; align-items:center; gap:7px; }
+.btn-p { background:var(--green); color:white; }
+.btn-p:hover { background:var(--green2); }
+.btn-s { background:var(--g100); color:var(--g700); border:1px solid var(--g300); }
+.btn-s:hover { background:var(--g300); }
+.btn-sm { padding:7px 13px; font-size:12px; border-radius:8px; }
+.btn:disabled { opacity:0.5; cursor:not-allowed; }
+ 
+.falert { display:none; padding:10px 13px; border-radius:9px; font-size:12px; margin-bottom:12px; }
+.falert.show { display:flex; align-items:center; gap:7px; }
+.falert.err { background:rgba(198,40,40,0.08); border:1px solid rgba(198,40,40,0.25); color:var(--danger); }
+ 
+.consent-box { background:rgba(27,94,32,0.05); border:1px solid rgba(27,94,32,0.2); border-radius:10px; padding:12px; }
+.consent-box label { display:flex; align-items:flex-start; gap:9px; cursor:pointer; font-size:12px; font-weight:400; color:var(--g700); }
+.consent-box input[type=checkbox] { width:15px; height:15px; margin-top:2px; accent-color:var(--green); flex-shrink:0; }
+ 
+.success-scr { text-align:center; padding:46px 26px; }
+.success-icon { width:78px; height:78px; background:rgba(27,94,32,0.1); border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:34px; margin:0 auto 18px; animation:pulse 2s infinite; }
+@keyframes pulse { 0%,100%{box-shadow:0 0 0 0 rgba(27,94,32,0.3)} 50%{box-shadow:0 0 0 14px rgba(27,94,32,0)} }
+ 
+/* MEMBER PROFILE */
+.mp-wrap { max-width:900px; margin:0 auto; padding:26px 14px 60px; }
+.mh-card { background:linear-gradient(135deg,var(--navy),var(--green)); border-radius:20px; padding:30px; margin-bottom:18px; display:flex; align-items:center; gap:22px; position:relative; overflow:hidden; }
+.mh-card::after { content:''; position:absolute; left:-40px; bottom:-40px; width:180px; height:180px; background:radial-gradient(circle,rgba(255,255,255,0.05) 0%,transparent 70%); border-radius:50%; }
+.mh-photo { width:96px; height:96px; border-radius:50%; border:4px solid rgba(255,255,255,0.4); object-fit:cover; flex-shrink:0; background:rgba(255,255,255,0.1); display:flex; align-items:center; justify-content:center; font-size:36px; font-weight:800; color:white; overflow:hidden; }
+.mh-info { flex:1; }
+.mh-info h2 { color:white; font-size:23px; font-weight:900; }
+.mh-info .job { color:rgba(255,255,255,0.7); font-size:13px; margin-top:3px; }
+.mh-info .meta { color:rgba(255,255,255,0.6); font-size:12px; margin-top:7px; display:flex; flex-wrap:wrap; gap:12px; }
+.mid-badge { display:inline-block; background:rgba(255,255,255,0.15); border:1px solid rgba(255,255,255,0.3); color:white; padding:4px 12px; border-radius:8px; font-size:12px; font-weight:700; letter-spacing:1px; margin-top:9px; }
+.mstatus { padding:8px 14px; border-radius:10px; font-size:12px; font-weight:700; flex-shrink:0; }
+.mstatus.approved { background:rgba(255,255,255,0.15); color:#A5D6A7; }
+.mstatus.pending { background:rgba(255,152,0,0.2); color:#FFB74D; }
+.mstatus.rejected { background:rgba(198,40,40,0.2); color:#EF9A9A; }
+ 
+.pgrid { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:18px; }
+.pcard { background:white; border-radius:14px; padding:18px; box-shadow:0 2px 12px rgba(0,0,0,0.06); }
+.pcard h3 { font-size:13px; font-weight:800; color:var(--navy); margin-bottom:12px; }
+.irow { display:flex; justify-content:space-between; padding:7px 0; border-bottom:1px solid var(--g100); font-size:12px; }
+.irow:last-child { border-bottom:none; }
+.ilabel { color:var(--g500); }
+.ival { color:var(--g700); font-weight:600; }
+ 
+/* MEMBER CARD */
+.mc-wrap { display:flex; justify-content:center; padding:18px 0; }
+.mc { width:380px; background:linear-gradient(135deg,var(--navy) 0%,#0D3B6E 50%,var(--green) 100%); border-radius:18px; padding:22px; position:relative; overflow:hidden; box-shadow:0 20px 60px rgba(0,51,102,0.4); color:white; }
+.mc::before { content:''; position:absolute; top:-60px; right:-60px; width:200px; height:200px; background:radial-gradient(circle,rgba(27,94,32,0.3) 0%,transparent 70%); border-radius:50%; }
+.mc-strip { height:4px; background:linear-gradient(90deg,var(--green3),var(--gold2)); border-radius:2px; margin-bottom:16px; }
+.mc-hdr { display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; }
+.mc-org strong { display:block; font-size:11px; color:#A5D6A7; }
+.mc-org span { font-size:10px; color:rgba(255,255,255,0.5); }
+.mc-type { font-size:10px; color:#A5D6A7; background:rgba(27,94,32,0.3); border:1px solid rgba(165,214,167,0.3); padding:3px 10px; border-radius:20px; }
+.mc-photo { width:58px; height:58px; border-radius:50%; border:3px solid rgba(165,214,167,0.5); object-fit:cover; margin-bottom:9px; background:rgba(255,255,255,0.1); display:flex; align-items:center; justify-content:center; font-size:22px; font-weight:800; overflow:hidden; }
+.mc-name { font-size:16px; font-weight:900; margin-bottom:2px; }
+.mc-job { font-size:11px; color:rgba(255,255,255,0.6); margin-bottom:14px; }
+.mc-ftr { display:flex; justify-content:space-between; align-items:flex-end; padding-top:13px; border-top:1px solid rgba(255,255,255,0.1); }
+.mc-id .lbl { font-size:9px; color:rgba(255,255,255,0.5); text-transform:uppercase; letter-spacing:1px; }
+.mc-id .val { font-size:14px; font-weight:800; color:#A5D6A7; letter-spacing:2px; }
+.mc-valid { font-size:9px; color:rgba(255,255,255,0.4); margin-top:3px; }
+.mc-qr { width:48px; height:48px; background:white; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:24px; }
+ 
+.pending-notice { background:rgba(230,81,0,0.07); border:1px solid rgba(230,81,0,0.2); border-radius:14px; padding:22px; text-align:center; margin-bottom:18px; }
+.pending-notice .icon { font-size:34px; margin-bottom:8px; }
+.pending-notice h3 { font-size:15px; font-weight:700; color:var(--warning); margin-bottom:5px; }
+.pending-notice p { font-size:12px; color:var(--g500); }
+ 
+/* ADMIN */
+.admin-wrap { display:flex; min-height:calc(100vh - 70px); }
+.admin-side { width:210px; background:var(--navy); flex-shrink:0; padding:16px 0; display:flex; flex-direction:column; }
+.aside-item { display:flex; align-items:center; gap:9px; padding:11px 18px; color:rgba(255,255,255,0.6); font-size:13px; cursor:pointer; transition:all 0.2s; border-right:3px solid transparent; }
+.aside-item:hover { color:white; background:rgba(255,255,255,0.05); }
+.aside-item.active { color:#A5D6A7; border-right-color:#A5D6A7; background:rgba(27,94,32,0.15); }
+.aside-foot { padding:14px 18px; border-top:1px solid rgba(255,255,255,0.1); margin-top:auto; }
+.aside-foot p { color:rgba(255,255,255,0.3); font-size:10px; line-height:1.8; }
+.admin-main { flex:1; padding:26px; overflow-x:auto; }
+.admin-hdr { margin-bottom:22px; }
+.admin-hdr h2 { font-size:20px; font-weight:900; color:var(--navy); }
+.admin-hdr p { font-size:12px; color:var(--g500); margin-top:3px; }
+.stats-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:13px; margin-bottom:22px; }
+.scard { background:white; border-radius:14px; padding:16px 18px; border-right:4px solid; box-shadow:0 2px 10px rgba(0,0,0,0.05); }
+.scard.gr { border-right-color:var(--green); }
+.scard.bl { border-right-color:var(--navy); }
+.scard.or { border-right-color:var(--warning); }
+.scard.rd { border-right-color:var(--danger); }
+.sval { font-size:30px; font-weight:900; color:var(--navy); }
+.slbl { font-size:11px; color:var(--g500); margin-top:3px; }
+.asec { background:white; border-radius:14px; padding:18px; box-shadow:0 2px 10px rgba(0,0,0,0.05); }
+.asec-top { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap:wrap; gap:8px; }
+.asec-top h3 { font-size:14px; font-weight:800; color:var(--navy); }
+.frow { display:flex; gap:7px; flex-wrap:wrap; margin-bottom:12px; }
+.fbtn { padding:6px 13px; border-radius:8px; border:1.5px solid var(--g300); background:white; font-family:'Cairo',sans-serif; font-size:11px; cursor:pointer; color:var(--g700); transition:all 0.2s; }
+.fbtn.active { background:var(--navy); color:white; border-color:var(--navy); }
+.mtable { width:100%; border-collapse:collapse; font-size:12px; }
+.mtable th { text-align:right; padding:9px 11px; border-bottom:2px solid var(--g100); color:var(--g500); font-size:11px; font-weight:700; white-space:nowrap; }
+.mtable td { padding:11px 11px; border-bottom:1px solid var(--g100); color:var(--g700); vertical-align:middle; }
+.mtable tr:last-child td { border-bottom:none; }
+.mtable tr:hover td { background:rgba(27,94,32,0.02); }
+.mavatar { width:34px; height:34px; border-radius:50%; object-fit:cover; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; color:white; flex-shrink:0; overflow:hidden; }
+.mncell { display:flex; align-items:center; gap:9px; }
+.badge { display:inline-flex; align-items:center; gap:3px; padding:3px 10px; border-radius:20px; font-size:11px; font-weight:700; }
+.badge.pending { background:rgba(230,81,0,0.1); color:var(--warning); }
+.badge.approved { background:rgba(46,125,50,0.1); color:var(--success); }
+.badge.rejected { background:rgba(198,40,40,0.1); color:var(--danger); }
+.abtn { width:27px; height:27px; border-radius:7px; border:none; cursor:pointer; font-size:13px; display:flex; align-items:center; justify-content:center; transition:all 0.2s; }
+.abtn.view { background:rgba(0,51,102,0.08); color:var(--navy); }
+.abtn.view:hover { background:var(--navy); color:white; }
+.abtn.approve { background:rgba(46,125,50,0.1); color:var(--success); }
+.abtn.approve:hover { background:var(--success); color:white; }
+.abtn.reject { background:rgba(198,40,40,0.1); color:var(--danger); }
+.abtn.reject:hover { background:var(--danger); color:white; }
+.abtns { display:flex; gap:4px; }
+ 
+/* MODAL */
+.modal-ov { display:none; position:fixed; inset:0; background:rgba(0,20,0,0.6); z-index:300; align-items:center; justify-content:center; }
+.modal-ov.open { display:flex; }
+.modal { background:white; border-radius:18px; width:90%; max-width:540px; max-height:90vh; overflow-y:auto; animation:oIn 0.25s ease; }
+.modal-hdr { background:var(--navy); padding:16px 20px; border-radius:18px 18px 0 0; display:flex; align-items:center; justify-content:space-between; }
+.modal-hdr h3 { color:white; font-size:14px; font-weight:700; }
+.mclose { background:rgba(255,255,255,0.1); border:none; color:white; width:28px; height:28px; border-radius:7px; cursor:pointer; font-size:15px; display:flex; align-items:center; justify-content:center; }
+.modal-body { padding:20px; }
+ 
+/* LOADING */
+.loading-ov { display:none; position:fixed; inset:0; background:rgba(0,20,0,0.6); z-index:500; align-items:center; justify-content:center; flex-direction:column; gap:14px; }
+.loading-ov.show { display:flex; }
+.spinner { width:46px; height:46px; border:4px solid rgba(27,94,32,0.2); border-top:4px solid var(--green); border-radius:50%; animation:spin 0.8s linear infinite; }
+@keyframes spin { to{transform:rotate(360deg)} }
+.loading-ov p { color:white; font-size:14px; font-weight:600; }
+ 
+@media(max-width:700px){
+  .landing-cards { flex-direction:column; align-items:center; }
+  .lcard { width:100%; max-width:340px; }
+  .about-grid,.mt-grid,.stats-grid { grid-template-columns:1fr 1fr; }
+  .fg,.pgrid { grid-template-columns:1fr; }
+  .fg3 { grid-template-columns:1fr 1fr; }
+  .fgroup.sp2,.fgroup.sp3 { grid-column:span 1; }
+  .admin-wrap { flex-direction:column; }
+  .admin-side { width:100%; }
+  .mh-card { flex-direction:column; text-align:center; }
+  .mc { width:100%; max-width:380px; }
+  .sl { display:none; }
+  .sconn { width:18px; }
+  .hero h1 { font-size:26px; }
+}
+@media print {
+  body * { visibility:hidden; }
+  .mc,.mc * { visibility:visible; }
+  .mc { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); }
+}
 </style>
-
 </head>
 <body>
-
-<!-- LOGIN OVERLAY -->
-
-<div id="loginOverlay">
-  <div class="login-box">
-    <div class="login-icon">🔐</div>
-    <div class="login-title">لوحة الإدارة</div>
-    <div class="login-sub">جمعية تقنيات المركبات الكهربائية • AEVTSA</div>
-    <div class="login-error" id="loginError">⚠️ اسم المستخدم أو كلمة المرور غير صحيحة</div>
-    <div class="login-field">
-      <label>اسم المستخدم</label>
-      <input type="text" id="loginUser" placeholder="admin" autocomplete="username">
-    </div>
-    <div class="login-field">
-      <label>كلمة المرور</label>
-      <input type="password" id="loginPass" placeholder="••••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
-    </div>
-    <button class="login-btn" onclick="doLogin()">🔓 دخول</button>
+ 
+<div class="loading-ov" id="loadingOv"><div class="spinner"></div><p id="loadingTxt">جاري الحفظ...</p></div>
+ 
+<nav class="top-nav" id="mainNav">
+  <div class="nav-logo" onclick="goHome()">
+    <img src="data:image/png;base64,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" alt="شعار الجمعية" style="height:50px;object-fit:contain;">
+    <div class="nav-logo-text"><div class="t">جمعية تقنيات المركبات الكهربائية</div><div class="s">AEVTSA • نظام العضوية</div></div>
   </div>
-</div>
-
-<!-- LOADING -->
-
-<div class="loading-overlay" id="loadingOverlay">
-  <div class="spinner"></div>
-  <div class="loading-text">جاري الحفظ في السحابة...</div>
-</div>
-
-<!-- NAV -->
-
-<nav class="top-nav">
-  <div class="nav-logo">
-    <div class="logo-icon">⚡</div>
-    <div class="logo-text">
-      <div class="title">جمعية تقنيات المركبات الكهربائية</div>
-      <div class="sub">AEVTSA • نظام العضوية السحابي</div>
-    </div>
-  </div>
-  <div class="nav-right">
-    <div class="cloud-badge">☁️ Firebase • بيانات سحابية</div>
-    <div class="nav-tabs">
-      <button class="nav-tab active" onclick="showPage('register')">📝 التسجيل</button>
-      <button class="nav-tab" onclick="handleAdminClick()">🛡️ لوحة الإدارة</button>
-      <button class="nav-tab" id="profileTab" style="display:none" onclick="showPage('profile')">👤 ملفي</button>
-    </div>
-    <button class="btn-logout" id="logoutBtn" onclick="doLogout()">🚪 خروج</button>
+  <div class="nav-actions" id="navActions">
+    <button class="nav-btn nb-outline" onclick="openOverlay('memberLoginOv')">دخول الأعضاء</button>
+    <button class="nav-btn nb-solid" onclick="showPage('register')">التسجيل</button>
   </div>
 </nav>
-
-<!-- ===== REGISTER ===== -->
-
-<div class="page active" id="page-register">
-  <div class="reg-hero">
-    <div class="reg-badge">⚡ عضوية موثوقة • سحابية آمنة</div>
-    <h1>انضم إلى <span>جمعيتنا</span><br>وكن جزءاً من المستقبل</h1>
-    <p>كن جزءاً من مجتمع تقنيات المركبات الكهربائية في المملكة العربية السعودية</p>
-    <div class="ministry-badge">🏛️ تحت إشراف وزارة الطاقة | المملكة العربية السعودية</div>
-  </div>
-
-  <div class="reg-container">
-    <div class="reg-card">
-      <div class="reg-steps">
-        <div class="step-item">
-          <div class="step-circle active" id="sc1">1</div>
-          <span class="step-label active" id="sl1">البيانات الأساسية</span>
-        </div>
-        <div class="step-connector" id="conn1"></div>
-        <div class="step-item">
-          <div class="step-circle" id="sc2">2</div>
-          <span class="step-label" id="sl2">الخبرات المهنية</span>
-        </div>
-        <div class="step-connector" id="conn2"></div>
-        <div class="step-item">
-          <div class="step-circle" id="sc3">3</div>
-          <span class="step-label" id="sl3">الشهادات</span>
-        </div>
-        <div class="step-connector" id="conn3"></div>
-        <div class="step-item">
-          <div class="step-circle" id="sc4">4</div>
-          <span class="step-label" id="sl4">المراجعة</span>
-        </div>
+ 
+<!-- LANDING -->
+<div class="page active" id="page-landing">
+  <div class="hero">
+    <div class="hero-badge">⚡ نظام عضوية سحابي متكامل</div>
+    <h1>انضم إلى <span>جمعية تقنيات</span><br>المركبات الكهربائية</h1>
+    <p>كن جزءاً من المجتمع الوطني لتقنيات المركبات الكهربائية في المملكة العربية السعودية — تحت إشراف وزارة الطاقة</p>
+    <div class="landing-cards">
+      <div class="lcard reg" onclick="showPage('register')">
+        <div class="lcard-icon">📝</div>
+        <h3>طلب العضوية</h3>
+        <p>سجّل طلبك وانضم إلى مجتمعنا من خبراء المركبات الكهربائية</p>
+        <button class="lcard-btn">ابدأ التسجيل ←</button>
       </div>
-
-```
-  <div class="reg-form-body">
-    <!-- STEP 1 -->
-    <div class="form-step active" id="step1">
-      <div class="step-title">📋 البيانات الشخصية والأساسية</div>
-      <div class="step-subtitle">يرجى تعبئة جميع الحقول المطلوبة بدقة</div>
-      <div class="alert" id="alert1"></div>
-      <div class="form-grid">
-        <div class="form-group"><label>الاسم الأول <span class="req">*</span></label><input type="text" id="fname" placeholder="محمد"></div>
-        <div class="form-group"><label>الاسم الأخير <span class="req">*</span></label><input type="text" id="lname" placeholder="العنزي"></div>
-        <div class="form-group"><label>رقم الهوية الوطنية <span class="req">*</span></label><input type="text" id="nid" placeholder="10XXXXXXXXX" maxlength="10"></div>
-        <div class="form-group"><label>الجنسية <span class="req">*</span></label><select id="nationality"><option value="">اختر...</option><option>سعودي</option><option>مقيم</option></select></div>
-        <div class="form-group"><label>البريد الإلكتروني <span class="req">*</span></label><input type="email" id="email" placeholder="name@example.com"></div>
-        <div class="form-group"><label>رقم الجوال <span class="req">*</span></label><input type="tel" id="phone" placeholder="05XXXXXXXX"></div>
-        <div class="form-group"><label>المنطقة / المدينة <span class="req">*</span></label>
-          <select id="city"><option value="">اختر...</option><option>الرياض</option><option>جدة</option><option>مكة المكرمة</option><option>المدينة المنورة</option><option>الدمام</option><option>الخبر</option><option>الأحساء</option><option>حفر الباطن</option><option>تبوك</option><option>أبها</option><option>القصيم</option><option>حائل</option><option>نجران</option><option>جازان</option><option>الجوف</option><option>أخرى</option></select>
-        </div>
-        <div class="form-group"><label>نوع العضوية <span class="req">*</span></label>
-          <select id="memtype"><option value="">اختر...</option><option>عضو عامل</option><option>عضو مشارك</option><option>عضو منتسب</option><option>عضو شرفي</option></select>
-        </div>
-        <div class="form-group span2"><label>جهة العمل / الدراسة</label><input type="text" id="org" placeholder="اسم الجهة"></div>
+      <div class="lcard mlogin" onclick="openOverlay('memberLoginOv')">
+        <div class="lcard-icon">👤</div>
+        <h3>دخول الأعضاء</h3>
+        <p>ادخل إلى ملفك الشخصي وبطاقة عضويتك ومتابعة حالة طلبك</p>
+        <button class="lcard-btn">دخول العضو ←</button>
       </div>
-      <div class="form-nav">
-        <div></div>
-        <button class="btn btn-primary" onclick="nextStep(1)">التالي ←</button>
+      <div class="lcard alogin" onclick="openOverlay('adminLoginOv')">
+        <div class="lcard-icon">🛡️</div>
+        <h3>لوحة الإدارة</h3>
+        <p>إدارة الأعضاء والطلبات ومراجعة البيانات — للمسؤولين فقط</p>
+        <button class="lcard-btn">دخول الإدارة ←</button>
       </div>
     </div>
-
-    <!-- STEP 2 -->
-    <div class="form-step" id="step2">
-      <div class="step-title">💼 الخبرات والمؤهلات المهنية</div>
-      <div class="step-subtitle">أضف خبراتك ذات الصلة بتقنيات المركبات الكهربائية</div>
-      <div class="form-grid">
-        <div class="form-group"><label>المسمى الوظيفي الحالي</label><input type="text" id="jobtitle" placeholder="مهندس / باحث / متخصص..."></div>
-        <div class="form-group"><label>سنوات الخبرة</label>
-          <select id="expyears"><option value="">اختر...</option><option>أقل من سنة</option><option>1-3 سنوات</option><option>3-5 سنوات</option><option>5-10 سنوات</option><option>أكثر من 10 سنوات</option></select>
+  </div>
+ 
+  <div class="about-sec">
+    <div class="sec-title">عن الجمعية</div>
+    <div class="sec-sub">جمعية علمية متخصصة مرخصة من وزارة الطاقة</div>
+    <div class="about-grid">
+      <div class="about-card"><h4>🎯 الرسالة</h4><p>تنمية القدرات البشرية وتمكين المبادرات التقنية وتعزيز الوعي المجتمعي لدعم انتشار المركبات الكهربائية والمساهمة في البحث والابتكار.</p></div>
+      <div class="about-card"><h4>🔭 الرؤية</h4><p>أن نكون منصة رائدة للابتكار وتبادل المعرفة في مجال المركبات الكهربائية والبنية التحتية المتقدمة للشحن.</p></div>
+      <div class="about-card"><h4>🏛️ الانتماء</h4><p>جمعية علمية متخصصة تهدف لدعم الجهود الوطنية في تعزيز استخدام المركبات الكهربائية، مرخصة من وزارة الطاقة.</p></div>
+    </div>
+  </div>
+ 
+  <div class="mem-types-sec">
+    <div class="sec-title">فئات العضوية</div>
+    <div class="sec-sub">اختر الفئة المناسبة عند التسجيل</div>
+    <div class="mt-grid">
+      <div class="mt-card"><h4>🥇 العضوية الشرفية</h4><p>تُمنح تقديراً للشخصيات ذات المكانة العلمية أو الوطنية الرفيعة التي قدّمت إسهامات بارزة في مجال المركبات الكهربائية أو الطاقة المستدامة.</p></div>
+      <div class="mt-card"><h4>✅ العضوية العادية</h4><p>مفتوحة للأشخاص الطبيعيين والاعتباريين المهتمين بتقنيات المركبات الكهربائية والراغبين في المساهمة الفعّالة في أنشطة الجمعية.</p></div>
+      <div class="mt-card"><h4>🏆 العضوية الفخرية</h4><p>تُمنح للرواد والمؤسسين والداعمين الاستراتيجيين الذين أسهموا بشكل استثنائي في تأسيس الجمعية أو دعم مسيرتها الوطنية.</p></div>
+    </div>
+  </div>
+ 
+  <footer style="background:var(--navy);color:rgba(255,255,255,0.6);text-align:center;padding:22px;font-size:12px;">
+    <p>جمعية تقنيات المركبات الكهربائية — AEVTSA | تحت إشراف وزارة الطاقة | المملكة العربية السعودية</p>
+    <p style="margin-top:5px;color:rgba(255,255,255,0.3);">جميع الحقوق محفوظة © 2025</p>
+  </footer>
+</div>
+ 
+<!-- REGISTER -->
+<div class="page" id="page-register">
+  <div class="reg-wrap">
+    <div class="reg-ptitle"><h2>📝 طلب عضوية جديدة</h2><p>أكمل الخطوات للتسجيل في جمعية تقنيات المركبات الكهربائية</p></div>
+    <div class="reg-card">
+      <div class="steps-bar">
+        <div class="si"><div class="sc active" id="sc1">1</div><span class="sl active" id="sl1">البيانات</span></div>
+        <div class="sconn" id="conn1"></div>
+        <div class="si"><div class="sc" id="sc2">2</div><span class="sl" id="sl2">الخبرات</span></div>
+        <div class="sconn" id="conn2"></div>
+        <div class="si"><div class="sc" id="sc3">3</div><span class="sl" id="sl3">الشهادات</span></div>
+        <div class="sconn" id="conn3"></div>
+        <div class="si"><div class="sc" id="sc4">4</div><span class="sl" id="sl4">المراجعة</span></div>
+      </div>
+      <div class="fbody">
+        <!-- STEP 1 -->
+        <div class="fstep active" id="step1">
+          <div class="ftitle">👤 البيانات الشخصية</div>
+          <div class="fsub">يرجى تعبئة جميع الحقول المطلوبة بدقة</div>
+          <div class="falert" id="alert1"></div>
+          <label style="font-size:12px;font-weight:700;color:var(--g700);display:block;margin-bottom:7px;">📷 الصورة الشخصية (اختياري)</label>
+          <div class="photo-area" id="photoArea" onclick="document.getElementById('photoInput').click()">
+            <img id="photoPreview" class="photo-prev" src="" alt="">
+            <div id="photoPrompt"><div class="photo-icon">📷</div><div class="photo-txt"><strong>اضغط لرفع صورتك</strong><br>JPG, PNG — حد أقصى 5MB</div></div>
+            <input type="file" id="photoInput" accept="image/*" style="display:none" onchange="handlePhoto(this)">
+          </div>
+          <div class="fg">
+            <div class="fgroup"><label>الاسم الأول <span class="req">*</span></label><input type="text" id="fname" placeholder="محمد"></div>
+            <div class="fgroup"><label>الاسم الأخير <span class="req">*</span></label><input type="text" id="lname" placeholder="العنزي"></div>
+            <div class="fgroup"><label>رقم الهوية <span class="req">*</span></label><input type="text" id="nid" placeholder="10XXXXXXXXX" maxlength="10"></div>
+            <div class="fgroup"><label>الجنسية <span class="req">*</span></label><select id="nationality"><option value="">اختر...</option><option>سعودي</option><option>مقيم</option></select></div>
+            <div class="fgroup"><label>البريد الإلكتروني <span class="req">*</span></label><input type="email" id="email" placeholder="name@example.com"></div>
+            <div class="fgroup"><label>رقم الجوال <span class="req">*</span></label><input type="tel" id="phone" placeholder="05XXXXXXXX"></div>
+            <div class="fgroup"><label>كلمة المرور <span class="req">*</span></label><input type="password" id="regPass" placeholder="8 أحرف على الأقل" minlength="8"></div>
+            <div class="fgroup"><label>تأكيد كلمة المرور <span class="req">*</span></label><input type="password" id="regPassConfirm" placeholder="أعد كتابة كلمة المرور"></div>
+            <div class="fgroup"><label>المدينة <span class="req">*</span></label><select id="city"><option value="">اختر...</option><option>الرياض</option><option>جدة</option><option>مكة المكرمة</option><option>المدينة المنورة</option><option>الدمام</option><option>الخبر</option><option>الأحساء</option><option>حفر الباطن</option><option>تبوك</option><option>أبها</option><option>القصيم</option><option>حائل</option><option>نجران</option><option>جازان</option><option>الجوف</option><option>أخرى</option></select></div>
+            <div class="fgroup"><label>نوع العضوية <span class="req">*</span></label><select id="memtype"><option value="">اختر...</option><option>العضوية العادية</option><option>العضوية الشرفية</option><option>العضوية الفخرية</option></select></div>
+            <div class="fgroup sp2"><label>جهة العمل / الدراسة</label><input type="text" id="org" placeholder="اسم الجهة"></div>
+          </div>
+          <div class="fnav"><div></div><button class="btn btn-p" onclick="nextStep(1)">التالي ←</button></div>
         </div>
-        <div class="form-group span2"><label>مجالات الاهتمام</label>
-          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;">
-            <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="بطاريات وتخزين الطاقة" style="accent-color:var(--green)">بطاريات وتخزين الطاقة</label>
-            <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="بنية التحميل والشحن" style="accent-color:var(--green)">بنية التحميل والشحن</label>
-            <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="القيادة الذاتية" style="accent-color:var(--green)">القيادة الذاتية</label>
-            <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="المحركات الكهربائية" style="accent-color:var(--green)">المحركات الكهربائية</label>
-            <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="الطاقة المتجددة" style="accent-color:var(--green)">الطاقة المتجددة</label>
-            <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="السياسات والتشريعات" style="accent-color:var(--green)">السياسات والتشريعات</label>
-            <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="الاستدامة والبيئة" style="accent-color:var(--green)">الاستدامة والبيئة</label>
-            <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="المركبات التجارية" style="accent-color:var(--green)">المركبات التجارية</label>
+        <!-- STEP 2 -->
+        <div class="fstep" id="step2">
+          <div class="ftitle">💼 الخبرات المهنية</div>
+          <div class="fsub">أضف خبراتك في مجال المركبات الكهربائية</div>
+          <div class="fg">
+            <div class="fgroup"><label>المسمى الوظيفي</label><input type="text" id="jobtitle" placeholder="مهندس / باحث..."></div>
+            <div class="fgroup"><label>سنوات الخبرة</label><select id="expyears"><option value="">اختر...</option><option>أقل من سنة</option><option>1-3 سنوات</option><option>3-5 سنوات</option><option>5-10 سنوات</option><option>أكثر من 10 سنوات</option></select></div>
+            <div class="fgroup sp2"><label>مجالات الاهتمام</label>
+              <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;">
+                <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;"><input type="checkbox" class="icb" value="بطاريات وتخزين الطاقة" style="accent-color:var(--green)">بطاريات وتخزين الطاقة</label>
+                <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;"><input type="checkbox" class="icb" value="بنية الشحن" style="accent-color:var(--green)">بنية الشحن</label>
+                <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;"><input type="checkbox" class="icb" value="القيادة الذاتية" style="accent-color:var(--green)">القيادة الذاتية</label>
+                <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;"><input type="checkbox" class="icb" value="المحركات الكهربائية" style="accent-color:var(--green)">المحركات الكهربائية</label>
+                <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;"><input type="checkbox" class="icb" value="الطاقة المتجددة" style="accent-color:var(--green)">الطاقة المتجددة</label>
+                <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;"><input type="checkbox" class="icb" value="السياسات والتشريعات" style="accent-color:var(--green)">السياسات والتشريعات</label>
+                <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;"><input type="checkbox" class="icb" value="الاستدامة والبيئة" style="accent-color:var(--green)">الاستدامة والبيئة</label>
+              </div>
+            </div>
+            <div class="fgroup sp2"><label>نبذة مختصرة</label><textarea id="bio" placeholder="اكتب نبذة عن خبرتك ودوافعك للانضمام..."></textarea></div>
+            <div class="fgroup"><label>LinkedIn (اختياري)</label><input type="text" id="linkedin" placeholder="linkedin.com/in/..."></div>
+            <div class="fgroup"><label>الموقع الشخصي</label><input type="text" id="website" placeholder="https://..."></div>
+          </div>
+          <div class="fnav"><button class="btn btn-s" onclick="prevStep(2)">→ السابق</button><button class="btn btn-p" onclick="nextStep(2)">التالي ←</button></div>
+        </div>
+        <!-- STEP 3 -->
+        <div class="fstep" id="step3">
+          <div class="ftitle">🎓 الشهادات والمؤهلات</div>
+          <div class="fsub">أضف شهاداتك الأكاديمية والمهنية</div>
+          <div class="cert-list" id="certList"></div>
+          <div style="background:var(--g50);border-radius:12px;padding:14px;margin-top:10px;">
+            <div style="font-size:12px;font-weight:700;color:var(--navy);margin-bottom:10px;">➕ إضافة شهادة</div>
+            <div class="fg fg3">
+              <div class="fgroup"><label>الشهادة</label><select id="nd"><option value="">اختر...</option><option>دبلوم</option><option>بكالوريوس</option><option>ماجستير</option><option>دكتوراه</option><option>شهادة مهنية</option><option>دورة تدريبية</option></select></div>
+              <div class="fgroup"><label>التخصص</label><input type="text" id="nf" placeholder="الهندسة الكهربائية"></div>
+              <div class="fgroup"><label>الجهة</label><input type="text" id="ni" placeholder="جامعة / مؤسسة"></div>
+              <div class="fgroup"><label>السنة</label><input type="text" id="ny" placeholder="2023" maxlength="4"></div>
+            </div>
+            <button class="btn btn-p btn-sm" onclick="addCert()" style="margin-top:10px;">➕ إضافة</button>
+          </div>
+          <div class="fnav"><button class="btn btn-s" onclick="prevStep(3)">→ السابق</button><button class="btn btn-p" onclick="nextStep(3)">التالي ←</button></div>
+        </div>
+        <!-- STEP 4 -->
+        <div class="fstep" id="step4">
+          <div class="ftitle">✅ مراجعة وإرسال</div>
+          <div class="fsub">تأكد من صحة البيانات قبل الإرسال</div>
+          <div id="summaryBox" style="background:var(--g50);border-radius:13px;padding:16px;margin-bottom:14px;font-size:13px;"></div>
+          <div class="consent-box"><label><input type="checkbox" id="consentCheck"><span>أقر بأن جميع المعلومات صحيحة وأوافق على الشروط والأحكام الخاصة بعضوية جمعية تقنيات المركبات الكهربائية.</span></label></div>
+          <div class="fnav"><button class="btn btn-s" onclick="prevStep(4)">→ السابق</button><button class="btn btn-p" onclick="submitApp()" id="submitBtn">إرسال الطلب ☁️</button></div>
+        </div>
+        <!-- SUCCESS -->
+        <div class="fstep" id="stepSuccess">
+          <div class="success-scr">
+            <div class="success-icon">✅</div>
+            <h2 style="font-size:21px;font-weight:900;color:var(--navy);margin-bottom:8px;">تم إرسال طلبك بنجاح!</h2>
+            <p style="color:var(--g500);font-size:13px;">تم حفظ طلبك في قاعدة البيانات السحابية</p>
+            <p id="appRefNum" style="font-weight:800;font-size:15px;color:var(--green);margin:14px 0;"></p>
+            <div style="background:rgba(230,81,0,0.07);border:1px solid rgba(230,81,0,0.2);border-radius:9px;padding:10px 18px;display:inline-flex;align-items:center;gap:7px;color:var(--warning);font-weight:700;font-size:13px;margin-bottom:14px;">⏳ طلبك قيد المراجعة</div>
+            <p style="font-size:12px;color:var(--g500);">احتفظ برقم طلبك وبريدك للدخول لاحقاً إلى ملفك الشخصي</p>
+            <div style="display:flex;gap:10px;justify-content:center;margin-top:22px;flex-wrap:wrap;">
+              <button class="btn btn-p" onclick="autoLogin()">👤 عرض ملفي الشخصي</button>
+              <button class="btn btn-s" onclick="goHome()">🏠 الرئيسية</button>
+            </div>
           </div>
         </div>
-        <div class="form-group span2"><label>نبذة مختصرة</label><textarea id="bio" placeholder="اكتب نبذة عن خبرتك ودوافعك للانضمام..."></textarea></div>
-        <div class="form-group"><label>LinkedIn (اختياري)</label><input type="text" id="linkedin" placeholder="linkedin.com/in/..."></div>
-        <div class="form-group"><label>الموقع الشخصي (اختياري)</label><input type="text" id="website" placeholder="https://..."></div>
-      </div>
-      <div class="form-nav">
-        <button class="btn btn-secondary" onclick="prevStep(2)">→ السابق</button>
-        <button class="btn btn-primary" onclick="nextStep(2)">التالي ←</button>
-      </div>
-    </div>
-
-    <!-- STEP 3 -->
-    <div class="form-step" id="step3">
-      <div class="step-title">🎓 الشهادات والمؤهلات العلمية</div>
-      <div class="step-subtitle">أضف شهاداتك الأكاديمية والمهنية</div>
-      <div class="cert-list" id="certList"></div>
-      <div style="background:var(--gray-100);border-radius:12px;padding:16px;margin-top:14px;">
-        <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:12px;">➕ إضافة شهادة</div>
-        <div class="form-grid three">
-          <div class="form-group"><label>الشهادة</label><select id="newCertDegree"><option value="">اختر...</option><option>دبلوم</option><option>بكالوريوس</option><option>ماجستير</option><option>دكتوراه</option><option>شهادة مهنية</option><option>دورة تدريبية</option></select></div>
-          <div class="form-group"><label>التخصص</label><input type="text" id="newCertField" placeholder="الهندسة الكهربائية"></div>
-          <div class="form-group"><label>الجهة المانحة</label><input type="text" id="newCertIssuer" placeholder="جامعة / مؤسسة"></div>
-          <div class="form-group"><label>سنة الحصول</label><input type="text" id="newCertYear" placeholder="2023" maxlength="4"></div>
-        </div>
-        <button class="btn btn-primary btn-sm" onclick="addCert()" style="margin-top:10px;">➕ إضافة</button>
-      </div>
-      <div style="margin-top:16px;">
-        <label style="display:block;margin-bottom:8px;">📎 رفع ملفات الشهادات</label>
-        <div class="upload-area" onclick="document.getElementById('certFiles').click()">
-          <div class="icon">📂</div>
-          <p><strong>اضغط لرفع الملفات</strong> أو اسحبها هنا</p>
-          <p>PDF, JPG, PNG — حد أقصى 5MB لكل ملف</p>
-          <input type="file" id="certFiles" multiple accept=".pdf,.jpg,.jpeg,.png" onchange="handleFileUpload(this)">
-        </div>
-        <div class="uploaded-file" id="uploadedFiles"></div>
-      </div>
-      <div class="form-nav">
-        <button class="btn btn-secondary" onclick="prevStep(3)">→ السابق</button>
-        <button class="btn btn-primary" onclick="nextStep(3)">التالي ←</button>
-      </div>
-    </div>
-
-    <!-- STEP 4 -->
-    <div class="form-step" id="step4">
-      <div class="step-title">✅ مراجعة الطلب والإرسال</div>
-      <div class="step-subtitle">تأكد من صحة البيانات قبل الإرسال النهائي</div>
-      <div id="summaryBox" style="background:var(--gray-100);border-radius:14px;padding:18px;margin-bottom:16px;font-size:13px;"></div>
-      <div class="consent-box">
-        <label>
-          <input type="checkbox" id="consentCheck">
-          <span>أقر بأن جميع المعلومات صحيحة، وأوافق على الشروط والأحكام الخاصة بعضوية جمعية تقنيات المركبات الكهربائية.</span>
-        </label>
-      </div>
-      <div class="form-nav">
-        <button class="btn btn-secondary" onclick="prevStep(4)">→ السابق</button>
-        <button class="btn btn-primary" onclick="submitApp()" id="submitBtn">إرسال الطلب ☁️</button>
-      </div>
-    </div>
-
-    <!-- SUCCESS -->
-    <div class="form-step" id="stepSuccess">
-      <div class="success-screen">
-        <div class="success-icon">✅</div>
-        <h2>تم الحفظ في السحابة بنجاح!</h2>
-        <p>تم إرسال طلبك وحفظه في قاعدة البيانات السحابية</p>
-        <p>الإدارة ستشاهد طلبك فوراً في لوحة التحكم</p>
-        <div class="pending-badge">⏳ طلبك قيد المراجعة</div>
-        <p id="appRefNum" style="font-weight:700;font-size:15px;color:var(--navy);margin-top:8px;"></p>
-        <p style="margin-top:12px;font-size:12px;color:var(--gray-500);">سيتم إخطارك عبر البريد الإلكتروني خلال 5-7 أيام عمل</p>
-        <div style="display:flex;gap:10px;justify-content:center;margin-top:24px;flex-wrap:wrap;">
-          <button class="btn btn-secondary" onclick="showPage('profile')">👤 ملفي الشخصي</button>
-        </div>
       </div>
     </div>
   </div>
 </div>
-```
-
-  </div>
+ 
+<!-- MEMBER PROFILE -->
+<div class="page" id="page-member">
+  <div class="mp-wrap" id="mpContent"></div>
 </div>
-
-<!-- ===== ADMIN ===== -->
-
+ 
+<!-- ADMIN -->
 <div class="page" id="page-admin">
   <div class="admin-wrap">
-    <aside class="admin-sidebar">
-      <div class="sidebar-menu">
-        <div class="sidebar-item active" onclick="setFilter('all', document.querySelector('[data-filter=all]'))"><span>👥</span> جميع الأعضاء</div>
-        <div class="sidebar-item" onclick="setFilter('pending', document.querySelector('[data-filter=pending]'))"><span>⏳</span> طلبات معلقة <span id="pendingCount" style="background:var(--warning);color:white;border-radius:50px;padding:1px 8px;font-size:11px;margin-right:auto;display:none;"></span></div>
-        <div class="sidebar-item" onclick="setFilter('approved', document.querySelector('[data-filter=approved]'))"><span>✅</span> أعضاء مقبولون</div>
-        <div class="sidebar-item" onclick="setFilter('rejected', document.querySelector('[data-filter=rejected]'))"><span>❌</span> طلبات مرفوضة</div>
-      </div>
-      <div class="sidebar-footer">
-        <p>☁️ بيانات سحابية مباشرة<br>Firebase Firestore<br>جمعية تقنيات المركبات الكهربائية<br>تحت إشراف وزارة الطاقة</p>
-      </div>
+    <aside class="admin-side">
+      <div class="aside-item active" data-filter="all" onclick="setFilter('all',this)"><span>👥</span> جميع الأعضاء</div>
+      <div class="aside-item" data-filter="pending" onclick="setFilter('pending',this)"><span>⏳</span> معلقة <span id="pendingCount" style="background:var(--warning);color:white;border-radius:50px;padding:1px 8px;font-size:10px;margin-right:auto;display:none;"></span></div>
+      <div class="aside-item" data-filter="approved" onclick="setFilter('approved',this)"><span>✅</span> مقبولون</div>
+      <div class="aside-item" data-filter="rejected" onclick="setFilter('rejected',this)"><span>❌</span> مرفوضة</div>
+      <div class="aside-foot"><p>☁️ Firebase Firestore<br>جمعية تقنيات المركبات الكهربائية<br>تحت إشراف وزارة الطاقة</p></div>
     </aside>
     <main class="admin-main">
-      <div class="admin-header">
-        <h2>لوحة تحكم إدارة الأعضاء ☁️</h2>
-        <p>البيانات محدّثة لحظياً من Firebase Firestore</p>
-      </div>
+      <div class="admin-hdr"><h2>لوحة تحكم إدارة الأعضاء</h2><p>البيانات محدّثة لحظياً من Firebase</p></div>
       <div class="stats-grid">
-        <div class="stat-card green"><div class="stat-value" id="statTotal">—</div><div class="stat-label">إجمالي الطلبات</div></div>
-        <div class="stat-card gold"><div class="stat-value" id="statApproved">—</div><div class="stat-label">أعضاء مقبولون</div></div>
-        <div class="stat-card orange"><div class="stat-value" id="statPending">—</div><div class="stat-label">طلبات معلقة</div></div>
-        <div class="stat-card red"><div class="stat-value" id="statRejected">—</div><div class="stat-label">طلبات مرفوضة</div></div>
+        <div class="scard gr"><div class="sval" id="statTotal">—</div><div class="slbl">إجمالي الطلبات</div></div>
+        <div class="scard bl"><div class="sval" id="statApproved">—</div><div class="slbl">أعضاء مقبولون</div></div>
+        <div class="scard or"><div class="sval" id="statPending">—</div><div class="slbl">طلبات معلقة</div></div>
+        <div class="scard rd"><div class="sval" id="statRejected">—</div><div class="slbl">طلبات مرفوضة</div></div>
       </div>
-      <div class="admin-section">
-        <div class="section-header">
-          <h3>📋 قائمة الأعضاء والطلبات</h3>
-          <input type="text" id="searchInput" placeholder="🔍 بحث بالاسم أو الرقم..." style="padding:8px 14px;border-radius:9px;border:1.5px solid var(--gray-300);font-family:'Cairo',sans-serif;font-size:13px;width:220px;" onkeyup="renderTable()">
+      <div class="asec">
+        <div class="asec-top">
+          <h3>📋 قائمة الأعضاء</h3>
+          <input type="text" id="searchInput" placeholder="🔍 بحث..." style="padding:7px 12px;border-radius:8px;border:1.5px solid var(--g300);font-family:'Cairo',sans-serif;font-size:12px;width:180px;outline:none;" oninput="renderTable()">
         </div>
-        <div class="filter-row">
-          <button class="filter-btn active" data-filter="all" onclick="setFilter('all',this)">الكل</button>
-          <button class="filter-btn pending" data-filter="pending" onclick="setFilter('pending',this)">⏳ معلق</button>
-          <button class="filter-btn approved" data-filter="approved" onclick="setFilter('approved',this)">✅ مقبول</button>
-          <button class="filter-btn rejected" data-filter="rejected" onclick="setFilter('rejected',this)">❌ مرفوض</button>
+        <div class="frow">
+          <button class="fbtn active" data-filter="all" onclick="setFilter('all',this)">الكل</button>
+          <button class="fbtn" data-filter="pending" onclick="setFilter('pending',this)">⏳ معلق</button>
+          <button class="fbtn" data-filter="approved" onclick="setFilter('approved',this)">✅ مقبول</button>
+          <button class="fbtn" data-filter="rejected" onclick="setFilter('rejected',this)">❌ مرفوض</button>
         </div>
         <div style="overflow-x:auto;">
-          <table class="members-table">
-            <thead>
-              <tr>
-                <th>رقم العضوية</th><th>الاسم</th><th>نوع العضوية</th>
-                <th>المدينة</th><th>تاريخ الطلب</th><th>الحالة</th><th>الإجراءات</th>
-              </tr>
-            </thead>
-            <tbody id="membersTableBody"></tbody>
+          <table class="mtable">
+            <thead><tr><th>رقم العضوية</th><th>العضو</th><th>نوع العضوية</th><th>المدينة</th><th>تاريخ الطلب</th><th>الحالة</th><th>إجراءات</th></tr></thead>
+            <tbody id="mtbody"></tbody>
           </table>
         </div>
-        <div id="emptyState" style="text-align:center;padding:40px;color:var(--gray-500);display:none;">
-          <div style="font-size:40px;margin-bottom:12px;">📭</div>
-          <p>لا توجد سجلات</p>
-        </div>
+        <div id="emptyState" style="text-align:center;padding:36px;color:var(--g500);display:none;"><div style="font-size:34px;margin-bottom:9px;">📭</div><p>لا توجد سجلات</p></div>
       </div>
     </main>
   </div>
 </div>
-
-<!-- ===== PROFILE ===== -->
-
-<div class="page" id="page-profile">
-  <div class="profile-wrap">
-    <div id="profileContent"><div style="text-align:center;padding:60px;color:var(--gray-500);">سجّل طلب عضوية أولاً لعرض ملفك الشخصي</div></div>
-  </div>
-</div>
-
+ 
 <!-- MODAL -->
-
-<div class="modal-overlay" id="modalOverlay">
+<div class="modal-ov" id="modalOv">
   <div class="modal">
-    <div class="modal-header">
-      <h3 id="modalTitle">ملف العضو</h3>
-      <button class="modal-close" onclick="closeModal()">✕</button>
-    </div>
+    <div class="modal-hdr"><h3 id="modalTitle">ملف العضو</h3><button class="mclose" onclick="closeModal()">✕</button></div>
     <div class="modal-body" id="modalBody"></div>
   </div>
 </div>
-
+ 
+<!-- MEMBER LOGIN -->
+<div class="overlay" id="memberLoginOv">
+  <div class="obox">
+    <div class="ohead"><h3>👤 دخول الأعضاء</h3><p>أدخل بريدك الإلكتروني ورقم عضويتك</p></div>
+    <div class="obody">
+      <div class="oerr" id="mlErr">البريد الإلكتروني أو كلمة المرور غير صحيحة</div>
+      <div class="ofield"><label>البريد الإلكتروني</label><input type="email" id="mlEmail" placeholder="name@example.com"></div>
+      <div class="ofield"><label>كلمة المرور</label><input type="password" id="mlPass" placeholder="••••••••" onkeydown="if(event.key==='Enter')doMemberLogin()"></div>
+      <button class="obtn b" onclick="doMemberLogin()">دخول ←</button>
+      <div class="oclose"><a onclick="closeOverlay('memberLoginOv')">إغلاق</a></div>
+    </div>
+  </div>
+</div>
+ 
+<!-- ADMIN LOGIN -->
+<div class="overlay" id="adminLoginOv">
+  <div class="obox">
+    <div class="ohead"><h3>🛡️ دخول الإدارة</h3><p>للمسؤولين المعتمدين فقط</p></div>
+    <div class="obody">
+      <div class="oerr" id="alErr">اسم المستخدم أو كلمة المرور غير صحيحة</div>
+      <div class="ofield"><label>اسم المستخدم</label><input type="text" id="alUser" placeholder="admin"></div>
+      <div class="ofield"><label>كلمة المرور</label><input type="password" id="alPass" placeholder="••••••••" onkeydown="if(event.key==='Enter')doAdminLogin()"></div>
+      <button class="obtn gold" onclick="doAdminLogin()">دخول الإدارة ←</button>
+      <div class="oclose"><a onclick="closeOverlay('adminLoginOv')">إغلاق</a></div>
+    </div>
+  </div>
+</div>
+ 
 <script>
-// ===== AUTH =====
-const ADMIN_USER = 'admin';
-const ADMIN_PASS = 'aevtsa@2026';
-let isLoggedIn = false;
-
-function doLogin() {
-  const u = document.getElementById('loginUser').value.trim();
-  const p = document.getElementById('loginPass').value;
-  const err = document.getElementById('loginError');
-  if (u === ADMIN_USER && p === ADMIN_PASS) {
-    isLoggedIn = true;
-    document.getElementById('loginOverlay').classList.remove('show');
-    document.getElementById('logoutBtn').classList.add('show');
-    showPage('admin');
-  } else {
-    err.classList.add('show');
-    document.getElementById('loginPass').value = '';
-    setTimeout(() => err.classList.remove('show'), 3000);
+const ADMIN_USER='admin', ADMIN_PASS='aevtsa@2026';
+const COLORS=['#1B5E20','#003366','#B8860B','#C62828','#6A1B9A','#00695C','#E65100'];
+ 
+function openOverlay(id){ document.getElementById(id).classList.add('open'); }
+function closeOverlay(id){ document.getElementById(id).classList.remove('open'); }
+function showLoading(t){ document.getElementById('loadingTxt').textContent=t||'جاري التحميل...'; document.getElementById('loadingOv').classList.add('show'); }
+function hideLoading(){ document.getElementById('loadingOv').classList.remove('show'); }
+ 
+function goHome(){ showPage('landing'); updateNav('landing'); }
+ 
+function showPage(p){
+  document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));
+  document.getElementById('page-'+p).classList.add('active');
+  updateNav(p); window.scrollTo(0,0);
+}
+ 
+function updateNav(p){
+  const na=document.getElementById('navActions');
+  if(p==='admin'){ na.innerHTML=`<span class="nav-user">🛡️ مدير النظام</span><button class="nav-btn nb-danger" onclick="adminLogout()">🚪 خروج</button>`; }
+  else if(p==='member'&&window.currentMember){ na.innerHTML=`<span class="nav-user">👤 ${window.currentMember.fname} ${window.currentMember.lname}</span><button class="nav-btn nb-danger" onclick="memberLogout()">🚪 خروج</button>`; }
+  else{ na.innerHTML=`<button class="nav-btn nb-outline" onclick="openOverlay('memberLoginOv')">دخول الأعضاء</button><button class="nav-btn nb-solid" onclick="showPage('register')">التسجيل</button>`; }
+}
+ 
+function doMemberLogin(){
+  const email=document.getElementById('mlEmail').value.trim();
+  const pass=document.getElementById('mlPass').value;
+  const m=window.members.find(x=>x.email&&x.email.toLowerCase()===email.toLowerCase()&&x.password&&x.password===pass);
+  if(m){ window.currentMember=m; closeOverlay('memberLoginOv'); renderMemberProfile(); showPage('member'); }
+  else{ const e=document.getElementById('mlErr'); e.classList.add('show'); setTimeout(()=>e.classList.remove('show'),3000); }
+}
+function memberLogout(){ window.currentMember=null; goHome(); }
+ 
+function doAdminLogin(){
+  const u=document.getElementById('alUser').value.trim();
+  const p=document.getElementById('alPass').value;
+  if(u===ADMIN_USER&&p===ADMIN_PASS){ closeOverlay('adminLoginOv'); renderAdmin(); showPage('admin'); }
+  else{ const e=document.getElementById('alErr'); e.classList.add('show'); document.getElementById('alPass').value=''; setTimeout(()=>e.classList.remove('show'),3000); }
+}
+function adminLogout(){ document.getElementById('alUser').value=''; document.getElementById('alPass').value=''; goHome(); }
+ 
+function handlePhoto(input){
+  const f=input.files[0]; if(!f) return;
+  window.memberPhotoFile=f;
+  const r=new FileReader(); r.onload=(e)=>{ const pv=document.getElementById('photoPreview'),pp=document.getElementById('photoPrompt'); pv.src=e.target.result; pv.style.display='block'; pp.style.display='none'; }; r.readAsDataURL(f);
+}
+ 
+let cstep=1;
+function updateStepUI(s){
+  for(let i=1;i<=4;i++){
+    document.getElementById('sc'+i).className='sc'+(i<s?' done':i===s?' active':'');
+    document.getElementById('sl'+i).className='sl'+(i===s?' active':'');
+    if(i<4) document.getElementById('conn'+i).className='sconn'+(i<s?' done':'');
   }
 }
-
-function doLogout() {
-  isLoggedIn = false;
-  document.getElementById('logoutBtn').classList.remove('show');
-  document.getElementById('loginUser').value = '';
-  document.getElementById('loginPass').value = '';
-  showPage('register');
-}
-
-function handleAdminClick() {
-  if (isLoggedIn) {
-    showPage('admin');
-  } else {
-    document.getElementById('loginOverlay').classList.add('show');
-    setTimeout(() => document.getElementById('loginUser').focus(), 100);
-  }
-}
-
-// ===== APP =====
-const avatarColors = ['#00C896','#E53E3E','#DD6B20','#3182CE','#805AD5','#38A169','#D69E2E','#E53E3E'];
-
-function genMemberId() {
-  const count = window.members.length + 1;
-  return 'AEVTSA-' + count.toString().padStart(5,'0');
-}
-
-function showPage(page) {
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-  document.getElementById('page-' + page).classList.add('active');
-  const tabs = document.querySelectorAll('.nav-tab');
-  if (page==='register') tabs[0].classList.add('active');
-  if (page==='admin') { tabs[1].classList.add('active'); renderAdmin(); }
-  if (page==='profile') tabs[2].classList.add('active');
-}
-
-let currentStep = 1;
-function updateStepUI(step) {
-  for (let i=1;i<=4;i++) {
-    document.getElementById('sc'+i).className = 'step-circle'+(i<step?' done':i===step?' active':'');
-    document.getElementById('sl'+i).className = 'step-label'+(i===step?' active':'');
-    if (i<4) document.getElementById('conn'+i).className = 'step-connector'+(i<step?' done':'');
-  }
-}
-
-function nextStep(from) {
-  if (from===1) {
-    const err = validateStep1();
-    if (err) { showAlert('alert1',err,'error'); return; }
-    hideAlert('alert1');
-    window.formData = {
-      fname: document.getElementById('fname').value.trim(),
-      lname: document.getElementById('lname').value.trim(),
-      nid: document.getElementById('nid').value.trim(),
-      nationality: document.getElementById('nationality').value,
-      email: document.getElementById('email').value.trim(),
-      phone: document.getElementById('phone').value.trim(),
-      city: document.getElementById('city').value,
-      memtype: document.getElementById('memtype').value,
-      org: document.getElementById('org').value.trim()
-    };
-  }
-  if (from===2) {
-    Object.assign(window.formData, {
-      jobtitle: document.getElementById('jobtitle').value.trim(),
-      expyears: document.getElementById('expyears').value,
-      interests: [...document.querySelectorAll('.interest-cb:checked')].map(c=>c.value),
-      bio: document.getElementById('bio').value.trim(),
-      linkedin: document.getElementById('linkedin').value.trim(),
-      website: document.getElementById('website').value.trim()
-    });
-  }
-  if (from===3) { window.formData.certs = [...window.certs]; }
+function nextStep(from){
+  if(from===1){ const err=v1(); if(err){ showAlrt(err); return; } hideAlrt(); window.formData={fname:g('fname'),lname:g('lname'),nid:g('nid'),nationality:g('nationality'),email:g('email'),phone:g('phone'),city:g('city'),memtype:g('memtype'),org:g('org'),password:document.getElementById('regPass').value}; }
+  if(from===2){ Object.assign(window.formData,{jobtitle:g('jobtitle'),expyears:g('expyears'),interests:[...document.querySelectorAll('.icb:checked')].map(c=>c.value),bio:g('bio'),linkedin:g('linkedin'),website:g('website')}); }
+  if(from===3){ window.formData.certs=[...window.certs]; }
   document.getElementById('step'+from).classList.remove('active');
   document.getElementById('step'+(from+1)).classList.add('active');
-  currentStep = from+1;
-  updateStepUI(currentStep);
-  if (from===3) buildSummary();
+  cstep=from+1; updateStepUI(cstep); if(from===3) buildSummary();
 }
-
-function prevStep(from) {
-  document.getElementById('step'+from).classList.remove('active');
-  document.getElementById('step'+(from-1)).classList.add('active');
-  currentStep = from-1;
-  updateStepUI(currentStep);
-}
-
-function validateStep1() {
-  if (!document.getElementById('fname').value.trim()) return 'الاسم الأول مطلوب';
-  if (!document.getElementById('lname').value.trim()) return 'الاسم الأخير مطلوب';
-  const nid = document.getElementById('nid').value.trim();
-  if (!nid || nid.length!==10) return 'رقم الهوية يجب أن يكون 10 أرقام';
-  if (!document.getElementById('nationality').value) return 'الجنسية مطلوبة';
-  const email = document.getElementById('email').value.trim();
-  if (!email || !email.includes('@')) return 'البريد الإلكتروني غير صحيح';
-  if (!document.getElementById('phone').value.trim()) return 'رقم الجوال مطلوب';
-  if (!document.getElementById('city').value) return 'المدينة مطلوبة';
-  if (!document.getElementById('memtype').value) return 'نوع العضوية مطلوب';
+function prevStep(from){ document.getElementById('step'+from).classList.remove('active'); document.getElementById('step'+(from-1)).classList.add('active'); cstep=from-1; updateStepUI(cstep); }
+function g(id){ const el=document.getElementById(id); return el?el.value.trim():''; }
+function v1(){
+  if(!g('fname')) return 'الاسم الأول مطلوب';
+  if(!g('lname')) return 'الاسم الأخير مطلوب';
+  if(!g('nid')||g('nid').length!==10) return 'رقم الهوية يجب أن يكون 10 أرقام';
+  if(!g('nationality')) return 'الجنسية مطلوبة';
+  if(!g('email')||!g('email').includes('@')) return 'البريد الإلكتروني غير صحيح';
+  if(!g('phone')) return 'رقم الجوال مطلوب';
+  if(!g('city')) return 'المدينة مطلوبة';
+  if(!g('memtype')) return 'نوع العضوية مطلوب';
+  const pass=document.getElementById('regPass').value;
+  const passC=document.getElementById('regPassConfirm').value;
+  if(!pass||pass.length<8) return 'كلمة المرور يجب أن تكون 8 أحرف على الأقل';
+  if(pass!==passC) return 'كلمة المرور وتأكيدها غير متطابقين';
   return null;
 }
-
-function showAlert(id, msg, type) { const el=document.getElementById(id); el.className='alert show '+type; el.innerHTML=(type==='error'?'⚠️ ':'✅ ')+msg; }
-function hideAlert(id) { document.getElementById(id).className='alert'; }
-
-function addCert() {
-  const deg=document.getElementById('newCertDegree').value;
-  const field=document.getElementById('newCertField').value.trim();
-  const issuer=document.getElementById('newCertIssuer').value.trim();
-  const year=document.getElementById('newCertYear').value.trim();
-  if (!deg && !field) return;
-  window.certs.push({deg,field,issuer,year});
-  renderCerts();
-  ['newCertDegree','newCertField','newCertIssuer','newCertYear'].forEach(id=>document.getElementById(id).value='');
+function showAlrt(msg){ const el=document.getElementById('alert1'); el.className='falert show err'; el.innerHTML='⚠️ '+msg; }
+function hideAlrt(){ document.getElementById('alert1').className='falert'; }
+ 
+function addCert(){
+  const deg=document.getElementById('nd').value,field=document.getElementById('nf').value.trim();
+  if(!deg&&!field) return;
+  window.certs.push({deg,field,issuer:document.getElementById('ni').value.trim(),year:document.getElementById('ny').value.trim()});
+  renderCerts(); ['nd','nf','ni','ny'].forEach(id=>document.getElementById(id).value='');
 }
-
-function removeCert(i) { window.certs.splice(i,1); renderCerts(); }
-
-function renderCerts() {
-  const list=document.getElementById('certList');
-  if (!list) return;
-  if (window.certs.length===0) { list.innerHTML='<p style="font-size:12px;color:var(--gray-500);text-align:center;padding:10px;">لم تتم إضافة أي شهادات بعد</p>'; return; }
-  list.innerHTML=window.certs.map((c,i)=>`<div class="cert-item"><div class="cert-item-info"><strong>🎓 ${c.deg} ${c.field?'- '+c.field:''}</strong><span>${c.issuer||''} ${c.year?'| '+c.year:''}</span></div><button class="btn-remove-cert" onclick="removeCert(${i})">✕</button></div>`).join('');
+function removeCert(i){ window.certs.splice(i,1); renderCerts(); }
+function renderCerts(){
+  const list=document.getElementById('certList'); if(!list) return;
+  if(!window.certs.length){ list.innerHTML='<p style="font-size:12px;color:var(--g500);text-align:center;padding:8px;">لم تتم إضافة أي شهادات</p>'; return; }
+  list.innerHTML=window.certs.map((c,i)=>`<div class="citem"><div><strong>🎓 ${c.deg} ${c.field?'— '+c.field:''}</strong><span>${c.issuer||''} ${c.year?'| '+c.year:''}</span></div><button class="crem" onclick="removeCert(${i})">✕</button></div>`).join('');
 }
-
-function handleFileUpload(input) {
-  const names=[...input.files].map(f=>f.name).join('، ');
-  const el=document.getElementById('uploadedFiles');
-  el.style.display='flex'; el.innerHTML='📎 '+names;
-}
-
-function buildSummary() {
+ 
+function buildSummary(){
   const fd=window.formData;
-  document.getElementById('summaryBox').innerHTML=`
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-      <div><div style="font-size:11px;color:var(--gray-500);margin-bottom:3px;">الاسم الكامل</div><div style="font-weight:600">${fd.fname} ${fd.lname}</div></div>
-      <div><div style="font-size:11px;color:var(--gray-500);margin-bottom:3px;">رقم الهوية</div><div style="font-weight:600">${fd.nid}</div></div>
-      <div><div style="font-size:11px;color:var(--gray-500);margin-bottom:3px;">البريد</div><div style="font-weight:600">${fd.email}</div></div>
-      <div><div style="font-size:11px;color:var(--gray-500);margin-bottom:3px;">الجوال</div><div style="font-weight:600">${fd.phone}</div></div>
-      <div><div style="font-size:11px;color:var(--gray-500);margin-bottom:3px;">المدينة</div><div style="font-weight:600">${fd.city}</div></div>
-      <div><div style="font-size:11px;color:var(--gray-500);margin-bottom:3px;">نوع العضوية</div><div style="font-weight:600;color:var(--green)">${fd.memtype}</div></div>
-      ${fd.jobtitle?`<div><div style="font-size:11px;color:var(--gray-500)">المسمى الوظيفي</div><div style="font-weight:600">${fd.jobtitle}</div></div>`:''}
-      ${fd.expyears?`<div><div style="font-size:11px;color:var(--gray-500)">سنوات الخبرة</div><div style="font-weight:600">${fd.expyears}</div></div>`:''}
-      ${fd.interests&&fd.interests.length>0?`<div style="grid-column:span 2"><div style="font-size:11px;color:var(--gray-500);margin-bottom:6px;">مجالات الاهتمام</div><div>${fd.interests.map(i=>`<span style="background:rgba(0,200,150,0.1);color:var(--green-dark);padding:3px 10px;border-radius:20px;font-size:12px;margin:2px;display:inline-block;">${i}</span>`).join('')}</div></div>`:''}
-      ${window.certs.length>0?`<div style="grid-column:span 2"><div style="font-size:11px;color:var(--gray-500);margin-bottom:6px;">الشهادات (${window.certs.length})</div><div>${window.certs.map(c=>`<span style="background:rgba(10,22,40,0.06);padding:4px 10px;border-radius:8px;font-size:12px;margin:2px;display:inline-block;">🎓 ${c.deg} ${c.field}</span>`).join('')}</div></div>`:''}
-    </div>`;
+  document.getElementById('summaryBox').innerHTML=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+    <div><div style="font-size:11px;color:var(--g500)">الاسم</div><div style="font-weight:700">${fd.fname} ${fd.lname}</div></div>
+    <div><div style="font-size:11px;color:var(--g500)">الهوية</div><div style="font-weight:700">${fd.nid}</div></div>
+    <div><div style="font-size:11px;color:var(--g500)">البريد</div><div style="font-weight:700">${fd.email}</div></div>
+    <div><div style="font-size:11px;color:var(--g500)">الجوال</div><div style="font-weight:700">${fd.phone}</div></div>
+    <div><div style="font-size:11px;color:var(--g500)">المدينة</div><div style="font-weight:700">${fd.city}</div></div>
+    <div><div style="font-size:11px;color:var(--g500)">نوع العضوية</div><div style="font-weight:700;color:var(--green)">${fd.memtype}</div></div>
+    ${fd.jobtitle?`<div><div style="font-size:11px;color:var(--g500)">المسمى</div><div style="font-weight:700">${fd.jobtitle}</div></div>`:''}
+    ${window.certs.length?`<div style="grid-column:span 2"><div style="font-size:11px;color:var(--g500);margin-bottom:5px;">الشهادات (${window.certs.length})</div><div>${window.certs.map(c=>`<span style="background:rgba(27,94,32,0.08);padding:3px 9px;border-radius:8px;font-size:11px;margin:2px;display:inline-block;">🎓 ${c.deg} ${c.field}</span>`).join('')}</div></div>`:''}
+  </div>`;
 }
-
-async function submitApp() {
-  if (!document.getElementById('consentCheck').checked) { alert('يجب الموافقة على الشروط والأحكام'); return; }
-  const btn = document.getElementById('submitBtn');
-  btn.disabled = true;
-  document.getElementById('loadingOverlay').classList.add('show');
-  try {
-    const memberId = genMemberId();
-    const colorIdx = window.members.length % avatarColors.length;
-    const memberData = {
-      id: memberId,
-      ...window.formData,
-      certs: window.certs,
-      status: 'pending',
-      appDate: new Date().toLocaleDateString('ar-SA'),
-      color: avatarColors[colorIdx]
-    };
+ 
+async function submitApp(){
+  if(!document.getElementById('consentCheck').checked){ alert('يجب الموافقة على الشروط والأحكام'); return; }
+  const btn=document.getElementById('submitBtn'); btn.disabled=true;
+  showLoading('جاري الحفظ في السحابة...');
+  try{
+    const memberId='AEVTSA-'+String(window.members.length+1).padStart(5,'0');
+    const memberData={id:memberId,...window.formData,certs:window.certs,status:'pending',appDate:new Date().toLocaleDateString('ar-SA'),color:COLORS[window.members.length%COLORS.length]};
     await window.submitToFirebase(memberData);
-    document.getElementById('loadingOverlay').classList.remove('show');
+    hideLoading();
     document.getElementById('step4').classList.remove('active');
     document.getElementById('stepSuccess').classList.add('active');
-    document.getElementById('appRefNum').textContent = 'رقم الطلب المرجعي: ' + memberId;
-    document.getElementById('profileTab').style.display = '';
-    window.currentViewId = memberId;
-  } catch(e) {
-    document.getElementById('loadingOverlay').classList.remove('show');
-    btn.disabled = false;
-    alert('حدث خطأ في الحفظ. تأكد من إعدادات Firestore (test mode) وحاول مجدداً.\n' + e.message);
-  }
+    document.getElementById('appRefNum').textContent='🆔 رقم طلبك: '+memberId;
+    window._justReg={...memberData};
+    setTimeout(()=>{ const f=window.members.find(m=>m.id===memberId); if(f) window._justReg=f; },2000);
+  }catch(e){ hideLoading(); btn.disabled=false; alert('حدث خطأ: '+e.message); }
 }
-
-function renderAdmin() {
-  const total = window.members.length;
-  const approved = window.members.filter(m=>m.status==='approved').length;
-  const pending = window.members.filter(m=>m.status==='pending').length;
-  const rejected = window.members.filter(m=>m.status==='rejected').length;
-  document.getElementById('statTotal').textContent = total;
-  document.getElementById('statApproved').textContent = approved;
-  document.getElementById('statPending').textContent = pending;
-  document.getElementById('statRejected').textContent = rejected;
-  const pc = document.getElementById('pendingCount');
-  if (pending>0) { pc.textContent=pending; pc.style.display='inline'; } else pc.style.display='none';
-  renderTable();
+ 
+function autoLogin(){
+  if(window._justReg){ window.currentMember=window._justReg; renderMemberProfile(); showPage('member'); }
 }
-
-function setFilter(f, btn) {
-  window.currentFilter = f;
-  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
-  if (btn) btn.classList.add('active');
-  renderTable();
-}
-
-function renderTable() {
-  const search = (document.getElementById('searchInput')||{value:''}).value.trim().toLowerCase();
-  let filtered = window.members.filter(m => {
-    const matchFilter = window.currentFilter==='all' || m.status===window.currentFilter;
-    const matchSearch = !search || (m.fname+' '+m.lname).toLowerCase().includes(search) || (m.id||'').toLowerCase().includes(search) || (m.email||'').toLowerCase().includes(search);
-    return matchFilter && matchSearch;
-  });
-  const tbody = document.getElementById('membersTableBody');
-  const empty = document.getElementById('emptyState');
-  if (!tbody) return;
-  if (filtered.length===0) { tbody.innerHTML=''; empty.style.display='block'; return; }
-  empty.style.display='none';
-  tbody.innerHTML = filtered.map(m=>`
-    <tr>
-      <td><span style="font-weight:700;color:var(--green);font-size:12px;letter-spacing:1px;">${m.id||'—'}</span></td>
-      <td><div class="member-name-cell"><div class="member-avatar" style="background:${m.color||'#00C896'}">${(m.fname||'')[0]||''}${(m.lname||'')[0]||''}</div><div><div style="font-weight:600">${m.fname} ${m.lname}</div><div style="font-size:11px;color:var(--gray-500)">${m.email}</div></div></div></td>
-      <td>${m.memtype||'—'}</td>
-      <td>${m.city||'—'}</td>
-      <td>${m.appDate||'—'}</td>
-      <td><span class="badge ${m.status}">${m.status==='pending'?'⏳ معلق':m.status==='approved'?'✅ مقبول':'❌ مرفوض'}</span></td>
-      <td><div class="action-btns">
-        <button class="btn-action btn-view" title="عرض" onclick="viewMember('${m.id}')">👁</button>
-        ${m.status!=='approved'?`<button class="btn-action btn-approve" title="قبول" onclick="updateStatus('${m.id}','approved')">✓</button>`:''}
-        ${m.status!=='rejected'?`<button class="btn-action btn-reject" title="رفض" onclick="updateStatus('${m.id}','rejected')">✕</button>`:''}
-      </div></td>
-    </tr>`).join('');
-}
-
-async function updateStatus(id, status) {
-  const m = window.members.find(x=>x.id===id);
-  if (!m || !m.firestoreId) return;
-  await window.updateStatusInFirebase(m.firestoreId, status);
-}
-
-function viewMember(id) {
-  const m = window.members.find(x=>x.id===id);
-  if (!m) return;
-  document.getElementById('modalTitle').textContent = 'ملف العضو: '+m.fname+' '+m.lname;
-  document.getElementById('modalBody').innerHTML=`
-    <div style="text-align:center;margin-bottom:16px;">
-      <div class="member-avatar" style="background:${m.color};width:60px;height:60px;font-size:22px;margin:0 auto 10px;">${(m.fname||'')[0]}${(m.lname||'')[0]}</div>
-      <div style="font-weight:800;font-size:17px">${m.fname} ${m.lname}</div>
-      <div style="font-size:12px;color:var(--gray-500)">${m.email} | ${m.phone}</div>
-      <span class="member-id-badge">${m.id}</span>
-    </div>
-    <div style="font-size:13px;">
-      <div class="info-row"><span class="info-label">نوع العضوية</span><span class="info-value">${m.memtype}</span></div>
-      <div class="info-row"><span class="info-label">المدينة</span><span class="info-value">${m.city}</span></div>
-      <div class="info-row"><span class="info-label">الجنسية</span><span class="info-value">${m.nationality}</span></div>
-      <div class="info-row"><span class="info-label">الجهة</span><span class="info-value">${m.org||'—'}</span></div>
-      <div class="info-row"><span class="info-label">المسمى الوظيفي</span><span class="info-value">${m.jobtitle||'—'}</span></div>
-      <div class="info-row"><span class="info-label">سنوات الخبرة</span><span class="info-value">${m.expyears||'—'}</span></div>
-      <div class="info-row"><span class="info-label">الحالة</span><span class="info-value"><span class="badge ${m.status}">${m.status==='pending'?'⏳ معلق':m.status==='approved'?'✅ مقبول':'❌ مرفوض'}</span></span></div>
-      ${m.certs&&m.certs.length>0?`<div style="margin-top:10px;"><div style="font-weight:600;margin-bottom:8px;">الشهادات:</div>${m.certs.map(c=>`<span class="cert-badge">🎓 ${c.deg} ${c.field}</span>`).join('')}</div>`:''}
-    </div>
-    <div style="display:flex;gap:10px;margin-top:18px;justify-content:center;flex-wrap:wrap;">
-      ${m.status!=='approved'?`<button class="btn btn-primary btn-sm" onclick="updateStatus('${m.id}','approved');closeModal()">✅ قبول</button>`:''}
-      ${m.status!=='rejected'?`<button class="btn btn-danger btn-sm" onclick="updateStatus('${m.id}','rejected');closeModal()">❌ رفض</button>`:''}
-      <button class="btn btn-secondary btn-sm" onclick="closeModal();window.currentViewId='${m.id}';renderProfile('${m.id}');showPage('profile')">👤 الملف الكامل</button>
-    </div>`;
-  document.getElementById('modalOverlay').classList.add('open');
-}
-
-function closeModal() { document.getElementById('modalOverlay').classList.remove('open'); }
-
-function renderProfile(id) {
-  const m = window.members.find(x=>x.id===id);
-  if (!m) { setTimeout(()=>renderProfile(id), 1000); return; }
-  const isApproved = m.status==='approved';
-  document.getElementById('profileContent').innerHTML=`
-    <div class="profile-header-card">
-      <div class="profile-avatar-big" style="background:rgba(0,200,150,0.15);">${(m.fname||'')[0]}${(m.lname||'')[0]}</div>
-      <div class="profile-info">
+ 
+function renderMemberProfile(){
+  const m=window.currentMember; if(!m) return;
+  const ini=((m.fname||'')[0]||'')+((m.lname||'')[0]||'');
+  const isApproved=m.status==='approved';
+  let photoEl=m.photoURL?`<img src="${m.photoURL}" class="mh-photo" style="display:block;" alt="">`:`<div class="mh-photo">${ini}</div>`;
+  let cardPhotoEl=m.photoURL?`<img src="${m.photoURL}" class="mc-photo" style="display:block;" alt="">`:`<div class="mc-photo">${ini}</div>`;
+ 
+  document.getElementById('mpContent').innerHTML=`
+    <div class="mh-card">
+      ${photoEl}
+      <div class="mh-info">
         <h2>${m.fname} ${m.lname}</h2>
         <div class="job">${m.jobtitle||m.memtype}</div>
         <div class="meta"><span>📧 ${m.email}</span><span>📱 ${m.phone}</span><span>📍 ${m.city}</span></div>
-        <div class="member-id-badge">${m.id}</div>
+        <div class="mid-badge">${m.id}</div>
       </div>
-      <div class="profile-status-badge ${m.status}">
-        ${m.status==='approved'?'✅ عضو نشط':m.status==='pending'?'⏳ قيد المراجعة':'❌ مرفوض'}
-      </div>
+      <div class="mstatus ${m.status}">${m.status==='approved'?'✅ عضو نشط':m.status==='pending'?'⏳ قيد المراجعة':'❌ مرفوض'}</div>
     </div>
-    <div class="profile-grid">
-      <div class="profile-card">
-        <h3>👤 البيانات الشخصية</h3>
-        <div class="info-row"><span class="info-label">الاسم الكامل</span><span class="info-value">${m.fname} ${m.lname}</span></div>
-        <div class="info-row"><span class="info-label">الجنسية</span><span class="info-value">${m.nationality}</span></div>
-        <div class="info-row"><span class="info-label">المدينة</span><span class="info-value">${m.city}</span></div>
-        <div class="info-row"><span class="info-label">الجهة</span><span class="info-value">${m.org||'—'}</span></div>
-        <div class="info-row"><span class="info-label">تاريخ الطلب</span><span class="info-value">${m.appDate}</span></div>
-        ${m.approvalDate?`<div class="info-row"><span class="info-label">تاريخ القبول</span><span class="info-value">${m.approvalDate}</span></div>`:''}
+    ${m.status==='pending'?`<div class="pending-notice"><div class="icon">⏳</div><h3>طلبك قيد المراجعة</h3><p>سيتم إخطارك بعد مراجعة طلبك. بطاقة العضوية ستظهر هنا بعد القبول.</p></div>`:''}
+    <div class="pgrid">
+      <div class="pcard"><h3>👤 البيانات الشخصية</h3>
+        <div class="irow"><span class="ilabel">الاسم الكامل</span><span class="ival">${m.fname} ${m.lname}</span></div>
+        <div class="irow"><span class="ilabel">الجنسية</span><span class="ival">${m.nationality}</span></div>
+        <div class="irow"><span class="ilabel">المدينة</span><span class="ival">${m.city}</span></div>
+        <div class="irow"><span class="ilabel">الجهة</span><span class="ival">${m.org||'—'}</span></div>
+        <div class="irow"><span class="ilabel">تاريخ الطلب</span><span class="ival">${m.appDate}</span></div>
+        ${m.approvalDate?`<div class="irow"><span class="ilabel">تاريخ القبول</span><span class="ival">${m.approvalDate}</span></div>`:''}
       </div>
-      <div class="profile-card">
-        <h3>💼 البيانات المهنية</h3>
-        <div class="info-row"><span class="info-label">المسمى الوظيفي</span><span class="info-value">${m.jobtitle||'—'}</span></div>
-        <div class="info-row"><span class="info-label">نوع العضوية</span><span class="info-value">${m.memtype}</span></div>
-        <div class="info-row"><span class="info-label">سنوات الخبرة</span><span class="info-value">${m.expyears||'—'}</span></div>
-        ${m.interests&&m.interests.length>0?`<div style="margin-top:10px;"><div style="font-size:11px;color:var(--gray-500);margin-bottom:8px;">مجالات الاهتمام</div><div>${m.interests.map(i=>`<span class="cert-badge" style="background:rgba(0,200,150,0.1);color:var(--green-dark);">⚡ ${i}</span>`).join('')}</div></div>`:''}
+      <div class="pcard"><h3>💼 البيانات المهنية</h3>
+        <div class="irow"><span class="ilabel">المسمى الوظيفي</span><span class="ival">${m.jobtitle||'—'}</span></div>
+        <div class="irow"><span class="ilabel">نوع العضوية</span><span class="ival">${m.memtype}</span></div>
+        <div class="irow"><span class="ilabel">سنوات الخبرة</span><span class="ival">${m.expyears||'—'}</span></div>
+        ${m.interests&&m.interests.length?`<div style="margin-top:8px;"><div style="font-size:11px;color:var(--g500);margin-bottom:6px;">مجالات الاهتمام</div><div>${m.interests.map(i=>`<span style="background:rgba(27,94,32,0.08);color:var(--green);padding:3px 9px;border-radius:20px;font-size:11px;margin:2px;display:inline-block;">⚡ ${i}</span>`).join('')}</div></div>`:''}
       </div>
-      ${m.certs&&m.certs.length>0?`<div class="profile-card"><h3>🎓 الشهادات (${m.certs.length})</h3>${m.certs.map(c=>`<div class="info-row"><span class="info-label">${c.deg} ${c.year?'('+c.year+')':''}</span><span class="info-value">${c.field} — ${c.issuer||''}</span></div>`).join('')}</div>`:''}
-      ${m.bio?`<div class="profile-card"><h3>📝 نبذة تعريفية</h3><p style="font-size:13px;line-height:1.7;color:var(--gray-700)">${m.bio}</p></div>`:''}
+      ${m.certs&&m.certs.length?`<div class="pcard"><h3>🎓 الشهادات (${m.certs.length})</h3>${m.certs.map(c=>`<div class="irow"><span class="ilabel">${c.deg} ${c.year?'('+c.year+')':''}</span><span class="ival">${c.field||''} ${c.issuer?'— '+c.issuer:''}</span></div>`).join('')}</div>`:''}
+      ${m.bio?`<div class="pcard"><h3>📝 النبذة التعريفية</h3><p style="font-size:12px;line-height:1.8;color:var(--g700)">${m.bio}</p></div>`:''}
     </div>
     ${isApproved?`
-    <div class="profile-card" style="margin-bottom:20px;">
+    <div class="pcard" style="margin-bottom:20px;">
       <h3>🪪 بطاقة العضوية الرسمية</h3>
-      <div class="card-wrap">
-        <div class="membership-card">
-          <div class="card-header">
-            <div class="card-logo"><div class="logo-box">⚡</div><div class="logo-name"><strong>AEVTSA</strong>جمعية تقنيات المركبات الكهربائية</div></div>
-            <div class="card-type">${m.memtype}</div>
+      <div class="mc-wrap">
+        <div class="mc">
+          <div class="mc-strip"></div>
+          <div class="mc-hdr">
+            <div class="mc-org"><strong>AEVTSA</strong><span>جمعية تقنيات المركبات الكهربائية</span></div>
+            <div class="mc-type">${m.memtype}</div>
           </div>
-          <div class="card-strip"></div>
-          <div class="card-avatar">${(m.fname||'')[0]}${(m.lname||'')[0]}</div>
-          <div class="card-name">${m.fname} ${m.lname}</div>
-          <div class="card-job">${m.jobtitle||m.memtype} ${m.org?'| '+m.org:''}</div>
-          <div class="card-footer">
-            <div>
-              <div class="card-id-section"><div class="label">رقم العضوية</div><div class="value">${m.id}</div></div>
-              <div class="card-valid">صادرة: ${m.approvalDate||m.appDate} | وزارة الطاقة</div>
-            </div>
-            <div class="card-qr">⬛</div>
+          ${cardPhotoEl}
+          <div class="mc-name">${m.fname} ${m.lname}</div>
+          <div class="mc-job">${m.jobtitle||m.memtype} ${m.org?'| '+m.org:''}</div>
+          <div class="mc-ftr">
+            <div class="mc-id"><div class="lbl">رقم العضوية</div><div class="val">${m.id}</div><div class="mc-valid">صادرة: ${m.approvalDate||m.appDate} | وزارة الطاقة</div></div>
+            <div class="mc-qr">⬛</div>
           </div>
         </div>
       </div>
-      <div class="print-btn-wrap">
-        <button class="btn btn-gold" onclick="window.print()">🖨️ طباعة البطاقة</button>
-        <button class="btn btn-secondary" onclick="downloadCert('${id}')">📄 تحميل شهادة العضوية</button>
+      <div style="text-align:center;margin-top:14px;display:flex;justify-content:center;gap:10px;flex-wrap:wrap;">
+        <button class="btn btn-p" onclick="window.print()">🖨️ طباعة البطاقة</button>
+        <button class="btn btn-s" onclick="downloadCert()">📄 تحميل شهادة العضوية</button>
       </div>
-    </div>`:
-    `<div style="background:rgba(221,107,32,0.08);border:1px solid rgba(221,107,32,0.3);border-radius:14px;padding:20px;text-align:center;margin-bottom:20px;">
-      <div style="font-size:28px;margin-bottom:8px;">⏳</div>
-      <div style="font-weight:700;color:var(--warning);margin-bottom:4px;">طلبك قيد المراجعة</div>
-      <div style="font-size:13px;color:var(--gray-500)">بطاقة العضوية ستظهر هنا بعد قبول طلبك من قبل الإدارة</div>
-    </div>`}`;
+    </div>`:''}`;
 }
-
-function downloadCert(id) {
-  const m = window.members.find(x=>x.id===id);
-  if (!m) return;
-  const html=`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><style>
-    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap');
-    body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f0f4f8;font-family:'Cairo',sans-serif;}
-    .cert{width:700px;background:white;border-radius:20px;padding:50px;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,0.1);border:3px solid #00C896;position:relative;}
-    .cert::before{content:'';position:absolute;inset:8px;border:1px solid rgba(0,200,150,0.3);border-radius:14px;pointer-events:none;}
-    .top-bar{height:6px;background:linear-gradient(90deg,#0A1628,#00C896,#F5C842);border-radius:4px;margin-bottom:30px;}
-    .logo-row{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:30px;}
-    .logo-icon{width:50px;height:50px;background:#00C896;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:24px;}
-    .org-name{font-size:14px;font-weight:900;color:#0A1628;text-align:right;}
-    .org-sub{font-size:11px;color:#718096;}
-    .cert-heading{font-size:28px;font-weight:900;color:#0A1628;margin-bottom:20px;}
-    .cert-text{font-size:15px;color:#4A5568;line-height:2;margin-bottom:10px;}
-    .member-name{font-size:32px;font-weight:900;color:#0A1628;margin:20px 0;border-bottom:2px solid #00C896;padding-bottom:15px;}
-    .id-box{background:#f0f4f8;border-radius:10px;padding:12px 24px;display:inline-block;margin:20px 0;}
-    .id-label{font-size:11px;color:#718096;}
-    .id-value{font-size:20px;font-weight:900;color:#00C896;letter-spacing:3px;}
-    .bottom{margin-top:30px;display:flex;justify-content:space-between;align-items:flex-end;}
-    .sig-line{width:120px;border-top:2px solid #0A1628;padding-top:8px;font-size:11px;color:#718096;}
-    .ministry{font-size:10px;color:#718096;background:#f0f4f8;padding:6px 14px;border-radius:8px;}
-  </style></head><body><div class="cert">
-
-```
-<div class="top-bar"></div>
-<div class="logo-row"><div class="logo-icon">⚡</div><div><div class="org-name">جمعية تقنيات المركبات الكهربائية</div><div class="org-sub">AEVTSA | تحت إشراف وزارة الطاقة</div></div></div>
-<div class="cert-heading">✨ شهادة عضوية رسمية ✨</div>
-<div class="cert-text">نشهد بأن</div>
-<div class="member-name">${m.fname} ${m.lname}</div>
-<div class="cert-text">عضو ${m.memtype} في جمعية تقنيات المركبات الكهربائية<br>اعترافاً بانتمائه ومساهمته في نشر ثقافة المركبات الكهربائية في المملكة العربية السعودية</div>
-<div class="id-box"><div class="id-label">رقم العضوية</div><div class="id-value">${m.id}</div></div>
-<div class="bottom">
-  <div class="sig-line">رئيس مجلس الإدارة</div>
-  <div class="ministry">صادرة: ${m.approvalDate||new Date().toLocaleDateString('ar-SA')}<br>وزارة الطاقة | المملكة العربية السعودية</div>
-  <div class="sig-line">الأمين العام</div>
-</div>
-```
-
-  </div></body></html>`;
+ 
+function downloadCert(){
+  const m=window.currentMember; if(!m) return;
+  const html=`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><style>@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap');body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f0f4f0;font-family:'Cairo',sans-serif;}.cert{width:700px;background:white;border-radius:20px;padding:50px;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,0.1);border:3px solid #1B5E20;}.top-bar{height:6px;background:linear-gradient(90deg,#003366,#1B5E20,#B8860B);border-radius:4px;margin-bottom:28px;}.on{font-size:16px;font-weight:900;color:#003366;margin-bottom:4px;}.os{font-size:11px;color:#718096;margin-bottom:28px;}.ch{font-size:26px;font-weight:900;color:#003366;margin-bottom:14px;}.ct{font-size:14px;color:#4A5568;line-height:2;}.mn{font-size:32px;font-weight:900;color:#003366;margin:18px 0;padding-bottom:12px;border-bottom:2px solid #1B5E20;}.ib{background:#f0f4f0;border-radius:10px;padding:10px 22px;display:inline-block;margin:14px 0;}.iv{font-size:18px;font-weight:900;color:#1B5E20;letter-spacing:3px;}.bot{margin-top:28px;display:flex;justify-content:space-between;align-items:flex-end;}.sl{width:120px;border-top:2px solid #003366;padding-top:7px;font-size:11px;color:#718096;}</style></head><body><div class="cert"><div class="top-bar"></div><div class="on">جمعية تقنيات المركبات الكهربائية</div><div class="os">AEVTSA | تحت إشراف وزارة الطاقة</div><div class="ch">✨ شهادة عضوية رسمية</div><div class="ct">نشهد بأن</div><div class="mn">${m.fname} ${m.lname}</div><div class="ct">عضو ${m.memtype} في جمعية تقنيات المركبات الكهربائية</div><div class="ib"><div style="font-size:11px;color:#718096;">رقم العضوية</div><div class="iv">${m.id}</div></div><div class="bot"><div class="sl">رئيس مجلس الإدارة</div><div style="font-size:10px;color:#718096;text-align:center;">صادرة: ${m.approvalDate||new Date().toLocaleDateString('ar-SA')}<br>وزارة الطاقة | المملكة العربية السعودية</div><div class="sl">الأمين العام</div></div></div></body></html>`;
   const blob=new Blob([html],{type:'text/html'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download='شهادة_عضوية_'+m.id+'.html';
-  a.click();
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='شهادة_عضوية_'+m.id+'.html'; a.click();
 }
-
-document.getElementById(‘modalOverlay’).addEventListener(‘click’, function(e) { if(e.target===this) closeModal(); });
+ 
+function renderAdmin(){
+  const total=window.members.length, approved=window.members.filter(m=>m.status==='approved').length, pending=window.members.filter(m=>m.status==='pending').length, rejected=window.members.filter(m=>m.status==='rejected').length;
+  document.getElementById('statTotal').textContent=total; document.getElementById('statApproved').textContent=approved; document.getElementById('statPending').textContent=pending; document.getElementById('statRejected').textContent=rejected;
+  const pc=document.getElementById('pendingCount'); if(pending>0){pc.textContent=pending;pc.style.display='inline';}else pc.style.display='none';
+  renderTable();
+}
+ 
+function setFilter(f,btn){
+  window.currentFilter=f;
+  document.querySelectorAll('.fbtn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.aside-item').forEach(b=>b.classList.remove('active'));
+  if(btn){ btn.classList.add('active'); const si=document.querySelector(`.aside-item[data-filter="${f}"]`); if(si) si.classList.add('active'); }
+  renderTable();
+}
+ 
+function renderTable(){
+  const search=(document.getElementById('searchInput')||{value:''}).value.trim().toLowerCase();
+  const filtered=window.members.filter(m=>{
+    const mf=window.currentFilter==='all'||m.status===window.currentFilter;
+    const ms=!search||(m.fname+' '+m.lname).toLowerCase().includes(search)||(m.id||'').toLowerCase().includes(search)||(m.email||'').toLowerCase().includes(search);
+    return mf&&ms;
+  });
+  const tbody=document.getElementById('mtbody'), empty=document.getElementById('emptyState');
+  if(!tbody) return;
+  if(!filtered.length){tbody.innerHTML='';empty.style.display='block';return;}
+  empty.style.display='none';
+  tbody.innerHTML=filtered.map(m=>{
+    const ini=((m.fname||'')[0]||'')+((m.lname||'')[0]||'');
+    const av=m.photoURL?`<img src="${m.photoURL}" class="mavatar" style="background:${m.color||'#1B5E20'}">`:`<div class="mavatar" style="background:${m.color||'#1B5E20'}">${ini}</div>`;
+    return `<tr><td><span style="font-weight:700;color:var(--green);font-size:12px;letter-spacing:1px;">${m.id||'—'}</span></td><td><div class="mncell">${av}<div><div style="font-weight:700">${m.fname} ${m.lname}</div><div style="font-size:11px;color:var(--g500)">${m.email}</div></div></div></td><td>${m.memtype||'—'}</td><td>${m.city||'—'}</td><td>${m.appDate||'—'}</td><td><span class="badge ${m.status}">${m.status==='pending'?'⏳ معلق':m.status==='approved'?'✅ مقبول':'❌ مرفوض'}</span></td><td><div class="abtns"><button class="abtn view" onclick="viewMember('${m.id}')">👁</button>${m.status!=='approved'?`<button class="abtn approve" onclick="updateStatus('${m.id}','approved')">✓</button>`:''}${m.status!=='rejected'?`<button class="abtn reject" onclick="updateStatus('${m.id}','rejected')">✕</button>`:''}</div></td></tr>`;
+  }).join('');
+}
+ 
+async function updateStatus(id,status){
+  const m=window.members.find(x=>x.id===id); if(!m||!m.firestoreId) return;
+  await window.updateStatusInFirebase(m.firestoreId,status);
+}
+ 
+function viewMember(id){
+  const m=window.members.find(x=>x.id===id); if(!m) return;
+  const ini=((m.fname||'')[0]||'')+((m.lname||'')[0]||'');
+  document.getElementById('modalTitle').textContent=m.fname+' '+m.lname;
+  document.getElementById('modalBody').innerHTML=`
+    <div style="text-align:center;margin-bottom:14px;">
+      ${m.photoURL?`<img src="${m.photoURL}" style="width:68px;height:68px;border-radius:50%;object-fit:cover;border:3px solid var(--green);margin-bottom:9px;">`:`<div style="width:68px;height:68px;border-radius:50%;background:${m.color};display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;color:white;margin:0 auto 9px;">${ini}</div>`}
+      <div style="font-weight:800;font-size:16px;color:var(--navy)">${m.fname} ${m.lname}</div>
+      <div style="font-size:12px;color:var(--g500)">${m.email} | ${m.phone}</div>
+      <div style="background:rgba(27,94,32,0.1);border:1px solid rgba(27,94,32,0.3);color:var(--green);padding:4px 12px;border-radius:8px;font-size:12px;font-weight:700;margin-top:7px;display:inline-block;">${m.id}</div>
+    </div>
+    <div style="font-size:13px;">
+      <div class="irow"><span class="ilabel">نوع العضوية</span><span class="ival">${m.memtype}</span></div>
+      <div class="irow"><span class="ilabel">المدينة</span><span class="ival">${m.city}</span></div>
+      <div class="irow"><span class="ilabel">الجنسية</span><span class="ival">${m.nationality}</span></div>
+      <div class="irow"><span class="ilabel">الجهة</span><span class="ival">${m.org||'—'}</span></div>
+      <div class="irow"><span class="ilabel">المسمى الوظيفي</span><span class="ival">${m.jobtitle||'—'}</span></div>
+      <div class="irow"><span class="ilabel">الحالة</span><span class="ival"><span class="badge ${m.status}">${m.status==='pending'?'⏳ معلق':m.status==='approved'?'✅ مقبول':'❌ مرفوض'}</span></span></div>
+      ${m.certs&&m.certs.length?`<div style="margin-top:9px;"><div style="font-weight:700;margin-bottom:6px;font-size:12px;color:var(--g500)">الشهادات:</div>${m.certs.map(c=>`<span style="background:rgba(27,94,32,0.08);padding:3px 9px;border-radius:8px;font-size:11px;margin:2px;display:inline-block;">🎓 ${c.deg} ${c.field}</span>`).join('')}</div>`:''}
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px;justify-content:center;flex-wrap:wrap;">
+      ${m.status!=='approved'?`<button class="btn btn-p btn-sm" onclick="updateStatus('${m.id}','approved');closeModal()">✅ قبول</button>`:''}
+      ${m.status!=='rejected'?`<button class="btn btn-sm" style="background:rgba(198,40,40,0.1);color:var(--danger);" onclick="updateStatus('${m.id}','rejected');closeModal()">❌ رفض</button>`:''}
+      <button class="btn btn-s btn-sm" onclick="closeModal()">إغلاق</button>
+    </div>`;
+  document.getElementById('modalOv').classList.add('open');
+}
+ 
+function closeModal(){ document.getElementById('modalOv').classList.remove('open'); }
+document.getElementById('modalOv').addEventListener('click',function(e){if(e.target===this)closeModal();});
 </script>
-
 </body>
 </html>
