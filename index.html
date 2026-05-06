@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
@@ -7,6 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;900&family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet">
 
 <!-- Firebase SDK -->
+
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
@@ -24,7 +26,6 @@
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
 
-  // ===== GLOBAL STATE =====
   window.db = db;
   window.members = [];
   window.currentFilter = 'all';
@@ -33,7 +34,6 @@
   window.certs = [];
   window.firebaseFns = { collection, addDoc, getDocs, doc, updateDoc, onSnapshot, query, orderBy, serverTimestamp };
 
-  // ===== REAL-TIME LISTENER =====
   function startRealtimeSync() {
     const q = query(collection(db, "members"), orderBy("appTimestamp", "desc"));
     onSnapshot(q, (snapshot) => {
@@ -45,7 +45,6 @@
       if (window.currentViewId) renderProfile(window.currentViewId);
     }, (error) => {
       console.error("Firestore error:", error);
-      showFirestoreError();
     });
   }
 
@@ -72,11 +71,10 @@
       await updateDoc(doc(db, "members", firestoreId), updates);
     } catch(e) {
       console.error("Update error:", e);
-      alert('حدث خطأ أثناء التحديث. تأكد من إعدادات Firestore.');
+      alert('حدث خطأ أثناء التحديث.');
     }
   };
 
-  // Start sync after DOM loads
   document.addEventListener('DOMContentLoaded', () => {
     startRealtimeSync();
     renderCerts();
@@ -95,6 +93,57 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Cairo', sans-serif; background: var(--gray-100); color: var(--navy); min-height: 100vh; }
 
+  /* ===== LOGIN OVERLAY ===== */
+  #loginOverlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: linear-gradient(135deg, var(--navy) 0%, var(--navy-mid) 60%, #0D3060 100%);
+    z-index: 500;
+    align-items: center; justify-content: center;
+  }
+  #loginOverlay.show { display: flex; }
+  .login-box {
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(0,200,150,0.25);
+    backdrop-filter: blur(10px);
+    border-radius: 24px;
+    padding: 40px 36px;
+    width: 90%; max-width: 400px;
+    text-align: center;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.4);
+    animation: loginIn 0.4s ease;
+  }
+  @keyframes loginIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+  .login-icon { width: 64px; height: 64px; background: var(--green); border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 28px; margin: 0 auto 16px; }
+  .login-title { color: white; font-size: 20px; font-weight: 800; margin-bottom: 4px; }
+  .login-sub { color: var(--green); font-size: 12px; margin-bottom: 28px; }
+  .login-field { margin-bottom: 14px; text-align: right; }
+  .login-field label { display: block; color: rgba(255,255,255,0.7); font-size: 12px; font-weight: 600; margin-bottom: 6px; }
+  .login-field input {
+    width: 100%; padding: 12px 14px;
+    background: rgba(255,255,255,0.08);
+    border: 1.5px solid rgba(255,255,255,0.15);
+    border-radius: 10px; color: white;
+    font-family: 'Cairo', sans-serif; font-size: 14px;
+    outline: none; transition: all 0.2s;
+  }
+  .login-field input:focus { border-color: var(--green); background: rgba(0,200,150,0.08); }
+  .login-field input::placeholder { color: rgba(255,255,255,0.3); }
+  .login-btn {
+    width: 100%; padding: 13px;
+    background: var(--green); color: white;
+    border: none; border-radius: 10px;
+    font-family: 'Cairo', sans-serif; font-size: 15px; font-weight: 700;
+    cursor: pointer; margin-top: 6px; transition: all 0.2s;
+  }
+  .login-btn:hover { background: var(--green-dark); transform: translateY(-1px); }
+  .login-error {
+    background: rgba(229,62,62,0.15); border: 1px solid rgba(229,62,62,0.4);
+    color: #FC8181; border-radius: 8px; padding: 10px 14px;
+    font-size: 13px; margin-bottom: 14px; display: none;
+  }
+  .login-error.show { display: block; }
+
   .top-nav {
     background: var(--navy); padding: 10px 24px;
     display: flex; align-items: center; justify-content: space-between;
@@ -112,6 +161,9 @@
   .nav-tab { padding: 7px 16px; border-radius: 8px; border: none; cursor: pointer; font-family: 'Cairo', sans-serif; font-size: 13px; color: var(--gray-300); background: transparent; transition: all 0.2s; }
   .nav-tab:hover { color: white; background: var(--navy-light); }
   .nav-tab.active { background: var(--green); color: white; font-weight: 600; }
+  .btn-logout { padding: 6px 14px; border-radius: 8px; border: 1px solid rgba(229,62,62,0.4); background: rgba(229,62,62,0.1); color: #FC8181; font-family: 'Cairo', sans-serif; font-size: 12px; cursor: pointer; display: none; transition: all 0.2s; }
+  .btn-logout:hover { background: var(--danger); color: white; }
+  .btn-logout.show { display: block; }
 
   .page { display: none; }
   .page.active { display: block; }
@@ -317,8 +369,6 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   .loading-text { color: white; font-size: 14px; font-weight: 600; }
 
-  .firestore-error { background: rgba(229,62,62,0.1); border: 1px solid rgba(229,62,62,0.3); border-radius: 10px; padding: 12px 16px; font-size: 12px; color: var(--danger); margin-bottom: 16px; display: none; }
-
   @media (max-width: 680px) {
     .form-grid { grid-template-columns: 1fr; }
     .form-grid.three { grid-template-columns: 1fr 1fr; }
@@ -340,16 +390,39 @@
     .membership-card { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); }
   }
 </style>
+
 </head>
 <body>
 
+<!-- LOGIN OVERLAY -->
+
+<div id="loginOverlay">
+  <div class="login-box">
+    <div class="login-icon">🔐</div>
+    <div class="login-title">لوحة الإدارة</div>
+    <div class="login-sub">جمعية تقنيات المركبات الكهربائية • AEVTSA</div>
+    <div class="login-error" id="loginError">⚠️ اسم المستخدم أو كلمة المرور غير صحيحة</div>
+    <div class="login-field">
+      <label>اسم المستخدم</label>
+      <input type="text" id="loginUser" placeholder="admin" autocomplete="username">
+    </div>
+    <div class="login-field">
+      <label>كلمة المرور</label>
+      <input type="password" id="loginPass" placeholder="••••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <button class="login-btn" onclick="doLogin()">🔓 دخول</button>
+  </div>
+</div>
+
 <!-- LOADING -->
+
 <div class="loading-overlay" id="loadingOverlay">
   <div class="spinner"></div>
   <div class="loading-text">جاري الحفظ في السحابة...</div>
 </div>
 
 <!-- NAV -->
+
 <nav class="top-nav">
   <div class="nav-logo">
     <div class="logo-icon">⚡</div>
@@ -362,13 +435,15 @@
     <div class="cloud-badge">☁️ Firebase • بيانات سحابية</div>
     <div class="nav-tabs">
       <button class="nav-tab active" onclick="showPage('register')">📝 التسجيل</button>
-      <button class="nav-tab" onclick="showPage('admin')">🛡️ لوحة الإدارة</button>
+      <button class="nav-tab" onclick="handleAdminClick()">🛡️ لوحة الإدارة</button>
       <button class="nav-tab" id="profileTab" style="display:none" onclick="showPage('profile')">👤 ملفي</button>
     </div>
+    <button class="btn-logout" id="logoutBtn" onclick="doLogout()">🚪 خروج</button>
   </div>
 </nav>
 
 <!-- ===== REGISTER ===== -->
+
 <div class="page active" id="page-register">
   <div class="reg-hero">
     <div class="reg-badge">⚡ عضوية موثوقة • سحابية آمنة</div>
@@ -401,142 +476,145 @@
         </div>
       </div>
 
-      <div class="reg-form-body">
-        <!-- STEP 1 -->
-        <div class="form-step active" id="step1">
-          <div class="step-title">📋 البيانات الشخصية والأساسية</div>
-          <div class="step-subtitle">يرجى تعبئة جميع الحقول المطلوبة بدقة</div>
-          <div class="alert" id="alert1"></div>
-          <div class="form-grid">
-            <div class="form-group"><label>الاسم الأول <span class="req">*</span></label><input type="text" id="fname" placeholder="محمد"></div>
-            <div class="form-group"><label>الاسم الأخير <span class="req">*</span></label><input type="text" id="lname" placeholder="العنزي"></div>
-            <div class="form-group"><label>رقم الهوية الوطنية <span class="req">*</span></label><input type="text" id="nid" placeholder="10XXXXXXXXX" maxlength="10"></div>
-            <div class="form-group"><label>الجنسية <span class="req">*</span></label><select id="nationality"><option value="">اختر...</option><option>سعودي</option><option>مقيم</option></select></div>
-            <div class="form-group"><label>البريد الإلكتروني <span class="req">*</span></label><input type="email" id="email" placeholder="name@example.com"></div>
-            <div class="form-group"><label>رقم الجوال <span class="req">*</span></label><input type="tel" id="phone" placeholder="05XXXXXXXX"></div>
-            <div class="form-group"><label>المنطقة / المدينة <span class="req">*</span></label>
-              <select id="city"><option value="">اختر...</option><option>الرياض</option><option>جدة</option><option>مكة المكرمة</option><option>المدينة المنورة</option><option>الدمام</option><option>الخبر</option><option>الأحساء</option><option>حفر الباطن</option><option>تبوك</option><option>أبها</option><option>القصيم</option><option>حائل</option><option>نجران</option><option>جازان</option><option>الجوف</option><option>أخرى</option></select>
-            </div>
-            <div class="form-group"><label>نوع العضوية <span class="req">*</span></label>
-              <select id="memtype"><option value="">اختر...</option><option>عضو عامل</option><option>عضو مشارك</option><option>عضو منتسب</option><option>عضو شرفي</option></select>
-            </div>
-            <div class="form-group span2"><label>جهة العمل / الدراسة</label><input type="text" id="org" placeholder="اسم الجهة"></div>
-          </div>
-          <div class="form-nav">
-            <div></div>
-            <button class="btn btn-primary" onclick="nextStep(1)">التالي ←</button>
+```
+  <div class="reg-form-body">
+    <!-- STEP 1 -->
+    <div class="form-step active" id="step1">
+      <div class="step-title">📋 البيانات الشخصية والأساسية</div>
+      <div class="step-subtitle">يرجى تعبئة جميع الحقول المطلوبة بدقة</div>
+      <div class="alert" id="alert1"></div>
+      <div class="form-grid">
+        <div class="form-group"><label>الاسم الأول <span class="req">*</span></label><input type="text" id="fname" placeholder="محمد"></div>
+        <div class="form-group"><label>الاسم الأخير <span class="req">*</span></label><input type="text" id="lname" placeholder="العنزي"></div>
+        <div class="form-group"><label>رقم الهوية الوطنية <span class="req">*</span></label><input type="text" id="nid" placeholder="10XXXXXXXXX" maxlength="10"></div>
+        <div class="form-group"><label>الجنسية <span class="req">*</span></label><select id="nationality"><option value="">اختر...</option><option>سعودي</option><option>مقيم</option></select></div>
+        <div class="form-group"><label>البريد الإلكتروني <span class="req">*</span></label><input type="email" id="email" placeholder="name@example.com"></div>
+        <div class="form-group"><label>رقم الجوال <span class="req">*</span></label><input type="tel" id="phone" placeholder="05XXXXXXXX"></div>
+        <div class="form-group"><label>المنطقة / المدينة <span class="req">*</span></label>
+          <select id="city"><option value="">اختر...</option><option>الرياض</option><option>جدة</option><option>مكة المكرمة</option><option>المدينة المنورة</option><option>الدمام</option><option>الخبر</option><option>الأحساء</option><option>حفر الباطن</option><option>تبوك</option><option>أبها</option><option>القصيم</option><option>حائل</option><option>نجران</option><option>جازان</option><option>الجوف</option><option>أخرى</option></select>
+        </div>
+        <div class="form-group"><label>نوع العضوية <span class="req">*</span></label>
+          <select id="memtype"><option value="">اختر...</option><option>عضو عامل</option><option>عضو مشارك</option><option>عضو منتسب</option><option>عضو شرفي</option></select>
+        </div>
+        <div class="form-group span2"><label>جهة العمل / الدراسة</label><input type="text" id="org" placeholder="اسم الجهة"></div>
+      </div>
+      <div class="form-nav">
+        <div></div>
+        <button class="btn btn-primary" onclick="nextStep(1)">التالي ←</button>
+      </div>
+    </div>
+
+    <!-- STEP 2 -->
+    <div class="form-step" id="step2">
+      <div class="step-title">💼 الخبرات والمؤهلات المهنية</div>
+      <div class="step-subtitle">أضف خبراتك ذات الصلة بتقنيات المركبات الكهربائية</div>
+      <div class="form-grid">
+        <div class="form-group"><label>المسمى الوظيفي الحالي</label><input type="text" id="jobtitle" placeholder="مهندس / باحث / متخصص..."></div>
+        <div class="form-group"><label>سنوات الخبرة</label>
+          <select id="expyears"><option value="">اختر...</option><option>أقل من سنة</option><option>1-3 سنوات</option><option>3-5 سنوات</option><option>5-10 سنوات</option><option>أكثر من 10 سنوات</option></select>
+        </div>
+        <div class="form-group span2"><label>مجالات الاهتمام</label>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;">
+            <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="بطاريات وتخزين الطاقة" style="accent-color:var(--green)">بطاريات وتخزين الطاقة</label>
+            <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="بنية التحميل والشحن" style="accent-color:var(--green)">بنية التحميل والشحن</label>
+            <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="القيادة الذاتية" style="accent-color:var(--green)">القيادة الذاتية</label>
+            <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="المحركات الكهربائية" style="accent-color:var(--green)">المحركات الكهربائية</label>
+            <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="الطاقة المتجددة" style="accent-color:var(--green)">الطاقة المتجددة</label>
+            <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="السياسات والتشريعات" style="accent-color:var(--green)">السياسات والتشريعات</label>
+            <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="الاستدامة والبيئة" style="accent-color:var(--green)">الاستدامة والبيئة</label>
+            <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="المركبات التجارية" style="accent-color:var(--green)">المركبات التجارية</label>
           </div>
         </div>
+        <div class="form-group span2"><label>نبذة مختصرة</label><textarea id="bio" placeholder="اكتب نبذة عن خبرتك ودوافعك للانضمام..."></textarea></div>
+        <div class="form-group"><label>LinkedIn (اختياري)</label><input type="text" id="linkedin" placeholder="linkedin.com/in/..."></div>
+        <div class="form-group"><label>الموقع الشخصي (اختياري)</label><input type="text" id="website" placeholder="https://..."></div>
+      </div>
+      <div class="form-nav">
+        <button class="btn btn-secondary" onclick="prevStep(2)">→ السابق</button>
+        <button class="btn btn-primary" onclick="nextStep(2)">التالي ←</button>
+      </div>
+    </div>
 
-        <!-- STEP 2 -->
-        <div class="form-step" id="step2">
-          <div class="step-title">💼 الخبرات والمؤهلات المهنية</div>
-          <div class="step-subtitle">أضف خبراتك ذات الصلة بتقنيات المركبات الكهربائية</div>
-          <div class="form-grid">
-            <div class="form-group"><label>المسمى الوظيفي الحالي</label><input type="text" id="jobtitle" placeholder="مهندس / باحث / متخصص..."></div>
-            <div class="form-group"><label>سنوات الخبرة</label>
-              <select id="expyears"><option value="">اختر...</option><option>أقل من سنة</option><option>1-3 سنوات</option><option>3-5 سنوات</option><option>5-10 سنوات</option><option>أكثر من 10 سنوات</option></select>
-            </div>
-            <div class="form-group span2"><label>مجالات الاهتمام</label>
-              <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;">
-                <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="بطاريات وتخزين الطاقة" style="accent-color:var(--green)">بطاريات وتخزين الطاقة</label>
-                <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="بنية التحميل والشحن" style="accent-color:var(--green)">بنية التحميل والشحن</label>
-                <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="القيادة الذاتية" style="accent-color:var(--green)">القيادة الذاتية</label>
-                <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="المحركات الكهربائية" style="accent-color:var(--green)">المحركات الكهربائية</label>
-                <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="الطاقة المتجددة" style="accent-color:var(--green)">الطاقة المتجددة</label>
-                <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="السياسات والتشريعات" style="accent-color:var(--green)">السياسات والتشريعات</label>
-                <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="الاستدامة والبيئة" style="accent-color:var(--green)">الاستدامة والبيئة</label>
-                <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="المركبات التجارية" style="accent-color:var(--green)">المركبات التجارية</label>
-              </div>
-            </div>
-            <div class="form-group span2"><label>نبذة مختصرة</label><textarea id="bio" placeholder="اكتب نبذة عن خبرتك ودوافعك للانضمام..."></textarea></div>
-            <div class="form-group"><label>LinkedIn (اختياري)</label><input type="text" id="linkedin" placeholder="linkedin.com/in/..."></div>
-            <div class="form-group"><label>الموقع الشخصي (اختياري)</label><input type="text" id="website" placeholder="https://..."></div>
-          </div>
-          <div class="form-nav">
-            <button class="btn btn-secondary" onclick="prevStep(2)">→ السابق</button>
-            <button class="btn btn-primary" onclick="nextStep(2)">التالي ←</button>
-          </div>
+    <!-- STEP 3 -->
+    <div class="form-step" id="step3">
+      <div class="step-title">🎓 الشهادات والمؤهلات العلمية</div>
+      <div class="step-subtitle">أضف شهاداتك الأكاديمية والمهنية</div>
+      <div class="cert-list" id="certList"></div>
+      <div style="background:var(--gray-100);border-radius:12px;padding:16px;margin-top:14px;">
+        <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:12px;">➕ إضافة شهادة</div>
+        <div class="form-grid three">
+          <div class="form-group"><label>الشهادة</label><select id="newCertDegree"><option value="">اختر...</option><option>دبلوم</option><option>بكالوريوس</option><option>ماجستير</option><option>دكتوراه</option><option>شهادة مهنية</option><option>دورة تدريبية</option></select></div>
+          <div class="form-group"><label>التخصص</label><input type="text" id="newCertField" placeholder="الهندسة الكهربائية"></div>
+          <div class="form-group"><label>الجهة المانحة</label><input type="text" id="newCertIssuer" placeholder="جامعة / مؤسسة"></div>
+          <div class="form-group"><label>سنة الحصول</label><input type="text" id="newCertYear" placeholder="2023" maxlength="4"></div>
         </div>
-
-        <!-- STEP 3 -->
-        <div class="form-step" id="step3">
-          <div class="step-title">🎓 الشهادات والمؤهلات العلمية</div>
-          <div class="step-subtitle">أضف شهاداتك الأكاديمية والمهنية</div>
-          <div class="cert-list" id="certList"></div>
-          <div style="background:var(--gray-100);border-radius:12px;padding:16px;margin-top:14px;">
-            <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:12px;">➕ إضافة شهادة</div>
-            <div class="form-grid three">
-              <div class="form-group"><label>الشهادة</label><select id="newCertDegree"><option value="">اختر...</option><option>دبلوم</option><option>بكالوريوس</option><option>ماجستير</option><option>دكتوراه</option><option>شهادة مهنية</option><option>دورة تدريبية</option></select></div>
-              <div class="form-group"><label>التخصص</label><input type="text" id="newCertField" placeholder="الهندسة الكهربائية"></div>
-              <div class="form-group"><label>الجهة المانحة</label><input type="text" id="newCertIssuer" placeholder="جامعة / مؤسسة"></div>
-              <div class="form-group"><label>سنة الحصول</label><input type="text" id="newCertYear" placeholder="2023" maxlength="4"></div>
-            </div>
-            <button class="btn btn-primary btn-sm" onclick="addCert()" style="margin-top:10px;">➕ إضافة</button>
-          </div>
-          <div style="margin-top:16px;">
-            <label style="display:block;margin-bottom:8px;">📎 رفع ملفات الشهادات</label>
-            <div class="upload-area" onclick="document.getElementById('certFiles').click()">
-              <div class="icon">📂</div>
-              <p><strong>اضغط لرفع الملفات</strong> أو اسحبها هنا</p>
-              <p>PDF, JPG, PNG — حد أقصى 5MB لكل ملف</p>
-              <input type="file" id="certFiles" multiple accept=".pdf,.jpg,.jpeg,.png" onchange="handleFileUpload(this)">
-            </div>
-            <div class="uploaded-file" id="uploadedFiles"></div>
-          </div>
-          <div class="form-nav">
-            <button class="btn btn-secondary" onclick="prevStep(3)">→ السابق</button>
-            <button class="btn btn-primary" onclick="nextStep(3)">التالي ←</button>
-          </div>
+        <button class="btn btn-primary btn-sm" onclick="addCert()" style="margin-top:10px;">➕ إضافة</button>
+      </div>
+      <div style="margin-top:16px;">
+        <label style="display:block;margin-bottom:8px;">📎 رفع ملفات الشهادات</label>
+        <div class="upload-area" onclick="document.getElementById('certFiles').click()">
+          <div class="icon">📂</div>
+          <p><strong>اضغط لرفع الملفات</strong> أو اسحبها هنا</p>
+          <p>PDF, JPG, PNG — حد أقصى 5MB لكل ملف</p>
+          <input type="file" id="certFiles" multiple accept=".pdf,.jpg,.jpeg,.png" onchange="handleFileUpload(this)">
         </div>
+        <div class="uploaded-file" id="uploadedFiles"></div>
+      </div>
+      <div class="form-nav">
+        <button class="btn btn-secondary" onclick="prevStep(3)">→ السابق</button>
+        <button class="btn btn-primary" onclick="nextStep(3)">التالي ←</button>
+      </div>
+    </div>
 
-        <!-- STEP 4 -->
-        <div class="form-step" id="step4">
-          <div class="step-title">✅ مراجعة الطلب والإرسال</div>
-          <div class="step-subtitle">تأكد من صحة البيانات قبل الإرسال النهائي</div>
-          <div id="summaryBox" style="background:var(--gray-100);border-radius:14px;padding:18px;margin-bottom:16px;font-size:13px;"></div>
-          <div class="consent-box">
-            <label>
-              <input type="checkbox" id="consentCheck">
-              <span>أقر بأن جميع المعلومات صحيحة، وأوافق على الشروط والأحكام الخاصة بعضوية جمعية تقنيات المركبات الكهربائية.</span>
-            </label>
-          </div>
-          <div class="form-nav">
-            <button class="btn btn-secondary" onclick="prevStep(4)">→ السابق</button>
-            <button class="btn btn-primary" onclick="submitApp()" id="submitBtn">إرسال الطلب ☁️</button>
-          </div>
-        </div>
+    <!-- STEP 4 -->
+    <div class="form-step" id="step4">
+      <div class="step-title">✅ مراجعة الطلب والإرسال</div>
+      <div class="step-subtitle">تأكد من صحة البيانات قبل الإرسال النهائي</div>
+      <div id="summaryBox" style="background:var(--gray-100);border-radius:14px;padding:18px;margin-bottom:16px;font-size:13px;"></div>
+      <div class="consent-box">
+        <label>
+          <input type="checkbox" id="consentCheck">
+          <span>أقر بأن جميع المعلومات صحيحة، وأوافق على الشروط والأحكام الخاصة بعضوية جمعية تقنيات المركبات الكهربائية.</span>
+        </label>
+      </div>
+      <div class="form-nav">
+        <button class="btn btn-secondary" onclick="prevStep(4)">→ السابق</button>
+        <button class="btn btn-primary" onclick="submitApp()" id="submitBtn">إرسال الطلب ☁️</button>
+      </div>
+    </div>
 
-        <!-- SUCCESS -->
-        <div class="form-step" id="stepSuccess">
-          <div class="success-screen">
-            <div class="success-icon">✅</div>
-            <h2>تم الحفظ في السحابة بنجاح!</h2>
-            <p>تم إرسال طلبك وحفظه في قاعدة البيانات السحابية</p>
-            <p>الإدارة ستشاهد طلبك فوراً في لوحة التحكم</p>
-            <div class="pending-badge">⏳ طلبك قيد المراجعة</div>
-            <p id="appRefNum" style="font-weight:700;font-size:15px;color:var(--navy);margin-top:8px;"></p>
-            <p style="margin-top:12px;font-size:12px;color:var(--gray-500);">سيتم إخطارك عبر البريد الإلكتروني خلال 5-7 أيام عمل</p>
-            <div style="display:flex;gap:10px;justify-content:center;margin-top:24px;flex-wrap:wrap;">
-              <button class="btn btn-primary" onclick="showPage('admin')">🛡️ لوحة الإدارة</button>
-              <button class="btn btn-secondary" onclick="showPage('profile')">👤 ملفي الشخصي</button>
-            </div>
-          </div>
+    <!-- SUCCESS -->
+    <div class="form-step" id="stepSuccess">
+      <div class="success-screen">
+        <div class="success-icon">✅</div>
+        <h2>تم الحفظ في السحابة بنجاح!</h2>
+        <p>تم إرسال طلبك وحفظه في قاعدة البيانات السحابية</p>
+        <p>الإدارة ستشاهد طلبك فوراً في لوحة التحكم</p>
+        <div class="pending-badge">⏳ طلبك قيد المراجعة</div>
+        <p id="appRefNum" style="font-weight:700;font-size:15px;color:var(--navy);margin-top:8px;"></p>
+        <p style="margin-top:12px;font-size:12px;color:var(--gray-500);">سيتم إخطارك عبر البريد الإلكتروني خلال 5-7 أيام عمل</p>
+        <div style="display:flex;gap:10px;justify-content:center;margin-top:24px;flex-wrap:wrap;">
+          <button class="btn btn-secondary" onclick="showPage('profile')">👤 ملفي الشخصي</button>
         </div>
       </div>
     </div>
   </div>
 </div>
+```
+
+  </div>
+</div>
 
 <!-- ===== ADMIN ===== -->
+
 <div class="page" id="page-admin">
   <div class="admin-wrap">
     <aside class="admin-sidebar">
       <div class="sidebar-menu">
-        <div class="sidebar-item active" onclick="setFilter('all', document.querySelector(\'[data-filter=all]\'))"><span>👥</span> جميع الأعضاء</div>
-        <div class="sidebar-item" onclick="setFilter('pending', document.querySelector(\'[data-filter=pending]\'))"><span>⏳</span> طلبات معلقة <span id="pendingCount" style="background:var(--warning);color:white;border-radius:50px;padding:1px 8px;font-size:11px;margin-right:auto;display:none;"></span></div>
-        <div class="sidebar-item" onclick="setFilter('approved', document.querySelector(\'[data-filter=approved]\'))"><span>✅</span> أعضاء مقبولون</div>
-        <div class="sidebar-item" onclick="setFilter('rejected', document.querySelector(\'[data-filter=rejected]\'))"><span>❌</span> طلبات مرفوضة</div>
+        <div class="sidebar-item active" onclick="setFilter('all', document.querySelector('[data-filter=all]'))"><span>👥</span> جميع الأعضاء</div>
+        <div class="sidebar-item" onclick="setFilter('pending', document.querySelector('[data-filter=pending]'))"><span>⏳</span> طلبات معلقة <span id="pendingCount" style="background:var(--warning);color:white;border-radius:50px;padding:1px 8px;font-size:11px;margin-right:auto;display:none;"></span></div>
+        <div class="sidebar-item" onclick="setFilter('approved', document.querySelector('[data-filter=approved]'))"><span>✅</span> أعضاء مقبولون</div>
+        <div class="sidebar-item" onclick="setFilter('rejected', document.querySelector('[data-filter=rejected]'))"><span>❌</span> طلبات مرفوضة</div>
       </div>
       <div class="sidebar-footer">
         <p>☁️ بيانات سحابية مباشرة<br>Firebase Firestore<br>جمعية تقنيات المركبات الكهربائية<br>تحت إشراف وزارة الطاقة</p>
@@ -585,6 +663,7 @@
 </div>
 
 <!-- ===== PROFILE ===== -->
+
 <div class="page" id="page-profile">
   <div class="profile-wrap">
     <div id="profileContent"><div style="text-align:center;padding:60px;color:var(--gray-500);">سجّل طلب عضوية أولاً لعرض ملفك الشخصي</div></div>
@@ -592,6 +671,7 @@
 </div>
 
 <!-- MODAL -->
+
 <div class="modal-overlay" id="modalOverlay">
   <div class="modal">
     <div class="modal-header">
@@ -603,6 +683,45 @@
 </div>
 
 <script>
+// ===== AUTH =====
+const ADMIN_USER = 'admin';
+const ADMIN_PASS = 'aevtsa@2026';
+let isLoggedIn = false;
+
+function doLogin() {
+  const u = document.getElementById('loginUser').value.trim();
+  const p = document.getElementById('loginPass').value;
+  const err = document.getElementById('loginError');
+  if (u === ADMIN_USER && p === ADMIN_PASS) {
+    isLoggedIn = true;
+    document.getElementById('loginOverlay').classList.remove('show');
+    document.getElementById('logoutBtn').classList.add('show');
+    showPage('admin');
+  } else {
+    err.classList.add('show');
+    document.getElementById('loginPass').value = '';
+    setTimeout(() => err.classList.remove('show'), 3000);
+  }
+}
+
+function doLogout() {
+  isLoggedIn = false;
+  document.getElementById('logoutBtn').classList.remove('show');
+  document.getElementById('loginUser').value = '';
+  document.getElementById('loginPass').value = '';
+  showPage('register');
+}
+
+function handleAdminClick() {
+  if (isLoggedIn) {
+    showPage('admin');
+  } else {
+    document.getElementById('loginOverlay').classList.add('show');
+    setTimeout(() => document.getElementById('loginUser').focus(), 100);
+  }
+}
+
+// ===== APP =====
 const avatarColors = ['#00C896','#E53E3E','#DD6B20','#3182CE','#805AD5','#38A169','#D69E2E','#E53E3E'];
 
 function genMemberId() {
@@ -814,7 +933,6 @@ async function updateStatus(id, status) {
   const m = window.members.find(x=>x.id===id);
   if (!m || !m.firestoreId) return;
   await window.updateStatusInFirebase(m.firestoreId, status);
-  // UI updates via real-time listener automatically
 }
 
 function viewMember(id) {
@@ -942,18 +1060,22 @@ function downloadCert(id) {
     .sig-line{width:120px;border-top:2px solid #0A1628;padding-top:8px;font-size:11px;color:#718096;}
     .ministry{font-size:10px;color:#718096;background:#f0f4f8;padding:6px 14px;border-radius:8px;}
   </style></head><body><div class="cert">
-    <div class="top-bar"></div>
-    <div class="logo-row"><div class="logo-icon">⚡</div><div><div class="org-name">جمعية تقنيات المركبات الكهربائية</div><div class="org-sub">AEVTSA | تحت إشراف وزارة الطاقة</div></div></div>
-    <div class="cert-heading">✨ شهادة عضوية رسمية ✨</div>
-    <div class="cert-text">نشهد بأن</div>
-    <div class="member-name">${m.fname} ${m.lname}</div>
-    <div class="cert-text">عضو ${m.memtype} في جمعية تقنيات المركبات الكهربائية<br>اعترافاً بانتمائه ومساهمته في نشر ثقافة المركبات الكهربائية في المملكة العربية السعودية</div>
-    <div class="id-box"><div class="id-label">رقم العضوية</div><div class="id-value">${m.id}</div></div>
-    <div class="bottom">
-      <div class="sig-line">رئيس مجلس الإدارة</div>
-      <div class="ministry">صادرة: ${m.approvalDate||new Date().toLocaleDateString('ar-SA')}<br>وزارة الطاقة | المملكة العربية السعودية</div>
-      <div class="sig-line">الأمين العام</div>
-    </div>
+
+```
+<div class="top-bar"></div>
+<div class="logo-row"><div class="logo-icon">⚡</div><div><div class="org-name">جمعية تقنيات المركبات الكهربائية</div><div class="org-sub">AEVTSA | تحت إشراف وزارة الطاقة</div></div></div>
+<div class="cert-heading">✨ شهادة عضوية رسمية ✨</div>
+<div class="cert-text">نشهد بأن</div>
+<div class="member-name">${m.fname} ${m.lname}</div>
+<div class="cert-text">عضو ${m.memtype} في جمعية تقنيات المركبات الكهربائية<br>اعترافاً بانتمائه ومساهمته في نشر ثقافة المركبات الكهربائية في المملكة العربية السعودية</div>
+<div class="id-box"><div class="id-label">رقم العضوية</div><div class="id-value">${m.id}</div></div>
+<div class="bottom">
+  <div class="sig-line">رئيس مجلس الإدارة</div>
+  <div class="ministry">صادرة: ${m.approvalDate||new Date().toLocaleDateString('ar-SA')}<br>وزارة الطاقة | المملكة العربية السعودية</div>
+  <div class="sig-line">الأمين العام</div>
+</div>
+```
+
   </div></body></html>`;
   const blob=new Blob([html],{type:'text/html'});
   const a=document.createElement('a');
@@ -962,11 +1084,8 @@ function downloadCert(id) {
   a.click();
 }
 
-function showFirestoreError() {
-  console.warn('Firestore connection issue - check rules');
-}
-
-document.getElementById('modalOverlay').addEventListener('click', function(e) { if(e.target===this) closeModal(); });
+document.getElementById(‘modalOverlay’).addEventListener(‘click’, function(e) { if(e.target===this) closeModal(); });
 </script>
+
 </body>
 </html>
