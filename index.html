@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>نظام عضوية | جمعية تقنيات المركبات الكهربائية</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;900&family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet">
+
+<!-- Firebase SDK -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getFirestore, collection, addDoc, getDocs, doc, updateDoc, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyADDzxKlSx_SwSbKXxKRI2W1_uX6oWPneo",
+    authDomain: "aevtsa-membership.firebaseapp.com",
+    projectId: "aevtsa-membership",
+    storageBucket: "aevtsa-membership.firebasestorage.app",
+    messagingSenderId: "1041942987412",
+    appId: "1:1041942987412:web:7a47640ebaf0113e9e3ef3",
+    measurementId: "G-TL8YWQCHGR"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  // ===== GLOBAL STATE =====
+  window.db = db;
+  window.members = [];
+  window.currentFilter = 'all';
+  window.currentViewId = null;
+  window.formData = {};
+  window.certs = [];
+  window.firebaseFns = { collection, addDoc, getDocs, doc, updateDoc, onSnapshot, query, orderBy, serverTimestamp };
+
+  // ===== REAL-TIME LISTENER =====
+  function startRealtimeSync() {
+    const q = query(collection(db, "members"), orderBy("appTimestamp", "desc"));
+    onSnapshot(q, (snapshot) => {
+      window.members = [];
+      snapshot.forEach((docSnap) => {
+        window.members.push({ firestoreId: docSnap.id, ...docSnap.data() });
+      });
+      renderAdmin();
+      if (window.currentViewId) renderProfile(window.currentViewId);
+    }, (error) => {
+      console.error("Firestore error:", error);
+      showFirestoreError();
+    });
+  }
+
+  window.submitToFirebase = async function(memberData) {
+    try {
+      const { addDoc, collection, serverTimestamp } = window.firebaseFns;
+      const docRef = await addDoc(collection(db, "members"), {
+        ...memberData,
+        appTimestamp: serverTimestamp(),
+        createdAt: new Date().toISOString()
+      });
+      return docRef.id;
+    } catch(e) {
+      console.error("Submit error:", e);
+      throw e;
+    }
+  };
+
+  window.updateStatusInFirebase = async function(firestoreId, status) {
+    try {
+      const { doc, updateDoc } = window.firebaseFns;
+      const updates = { status };
+      if (status === 'approved') updates.approvalDate = new Date().toLocaleDateString('ar-SA');
+      await updateDoc(doc(db, "members", firestoreId), updates);
+    } catch(e) {
+      console.error("Update error:", e);
+      alert('حدث خطأ أثناء التحديث. تأكد من إعدادات Firestore.');
+    }
+  };
+
+  // Start sync after DOM loads
+  document.addEventListener('DOMContentLoaded', () => {
+    startRealtimeSync();
+    renderCerts();
+  });
+</script>
+
+<style>
+  :root {
+    --green: #00C896; --green-dark: #009E78; --green-light: #00EDAF;
+    --navy: #0A1628; --navy-mid: #0F2040; --navy-light: #162B50;
+    --gold: #F5C842; --gold-light: #FFE080;
+    --white: #FFFFFF; --gray-100: #F0F4F8; --gray-300: #CBD5E0;
+    --gray-500: #718096; --gray-700: #2D3748;
+    --danger: #E53E3E; --success: #38A169; --warning: #DD6B20;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Cairo', sans-serif; background: var(--gray-100); color: var(--navy); min-height: 100vh; }
+
+  .top-nav {
+    background: var(--navy); padding: 10px 24px;
+    display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 100;
+    box-shadow: 0 2px 20px rgba(0,200,150,0.15);
+  }
+  .nav-logo { display: flex; align-items: center; gap: 12px; }
+  .nav-logo .logo-icon { width: 40px; height: 40px; background: var(--green); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+  .nav-logo .logo-text { color: white; }
+  .nav-logo .logo-text .title { font-size: 13px; font-weight: 700; }
+  .nav-logo .logo-text .sub { font-size: 10px; color: var(--green); }
+  .nav-right { display: flex; align-items: center; gap: 10px; }
+  .cloud-badge { display: flex; align-items: center; gap: 5px; background: rgba(0,200,150,0.15); border: 1px solid rgba(0,200,150,0.3); color: var(--green); padding: 4px 10px; border-radius: 20px; font-size: 11px; }
+  .nav-tabs { display: flex; gap: 4px; }
+  .nav-tab { padding: 7px 16px; border-radius: 8px; border: none; cursor: pointer; font-family: 'Cairo', sans-serif; font-size: 13px; color: var(--gray-300); background: transparent; transition: all 0.2s; }
+  .nav-tab:hover { color: white; background: var(--navy-light); }
+  .nav-tab.active { background: var(--green); color: white; font-weight: 600; }
+
+  .page { display: none; }
+  .page.active { display: block; }
+
+  .reg-hero {
+    background: linear-gradient(135deg, var(--navy) 0%, var(--navy-mid) 50%, #0D3060 100%);
+    padding: 50px 24px 60px; text-align: center; position: relative; overflow: hidden;
+  }
+  .reg-hero::before { content: ''; position: absolute; top: -50px; right: -50px; width: 300px; height: 300px; background: radial-gradient(circle, rgba(0,200,150,0.15) 0%, transparent 70%); border-radius: 50%; }
+  .reg-badge { display: inline-flex; align-items: center; gap: 8px; background: rgba(0,200,150,0.15); border: 1px solid rgba(0,200,150,0.4); color: var(--green-light); padding: 6px 16px; border-radius: 50px; font-size: 12px; margin-bottom: 20px; }
+  .reg-hero h1 { color: white; font-size: 32px; font-weight: 900; margin-bottom: 10px; line-height: 1.3; }
+  .reg-hero h1 span { color: var(--green-light); }
+  .reg-hero p { color: var(--gray-300); font-size: 15px; max-width: 500px; margin: 0 auto 10px; }
+  .ministry-badge { display: inline-flex; align-items: center; gap: 8px; background: rgba(245,200,66,0.1); border: 1px solid rgba(245,200,66,0.3); color: var(--gold); padding: 5px 14px; border-radius: 50px; font-size: 11px; margin-top: 8px; }
+
+  .reg-container { max-width: 760px; margin: -30px auto 40px; padding: 0 16px; position: relative; z-index: 2; }
+  .reg-card { background: white; border-radius: 20px; box-shadow: 0 20px 60px rgba(10,22,40,0.15); overflow: hidden; }
+  .reg-steps { background: var(--navy); padding: 20px 28px; display: flex; align-items: center; justify-content: center; gap: 0; }
+  .step-item { display: flex; align-items: center; gap: 0; }
+  .step-circle { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; font-family: 'Cairo', sans-serif; background: var(--navy-light); color: var(--gray-500); transition: all 0.3s; }
+  .step-circle.done { background: var(--green-dark); color: white; }
+  .step-circle.active { background: var(--green); color: white; box-shadow: 0 0 0 4px rgba(0,200,150,0.25); }
+  .step-label { color: var(--gray-500); font-size: 11px; margin-right: 8px; margin-left: 8px; transition: all 0.3s; white-space: nowrap; }
+  .step-label.active { color: var(--green); font-weight: 600; }
+  .step-connector { width: 40px; height: 2px; background: var(--navy-light); }
+  .step-connector.done { background: var(--green-dark); }
+
+  .reg-form-body { padding: 32px 28px; }
+  .form-step { display: none; }
+  .form-step.active { display: block; }
+  .step-title { font-size: 18px; font-weight: 700; color: var(--navy); margin-bottom: 6px; }
+  .step-subtitle { font-size: 13px; color: var(--gray-500); margin-bottom: 24px; }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .form-grid.three { grid-template-columns: 1fr 1fr 1fr; }
+  .form-group { display: flex; flex-direction: column; gap: 6px; }
+  .form-group.span2 { grid-column: span 2; }
+  .form-group.span3 { grid-column: span 3; }
+  label { font-size: 13px; font-weight: 600; color: var(--navy); }
+  label .req { color: var(--danger); margin-right: 2px; }
+  input[type=text], input[type=email], input[type=tel], input[type=date], select, textarea {
+    border: 1.5px solid var(--gray-300); border-radius: 10px;
+    padding: 11px 14px; font-family: 'Cairo', sans-serif; font-size: 13px;
+    color: var(--navy); background: white; outline: none; transition: all 0.2s; width: 100%;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(0,200,150,0.12); }
+  textarea { resize: vertical; min-height: 80px; }
+
+  .upload-area { border: 2px dashed var(--gray-300); border-radius: 10px; padding: 20px; text-align: center; cursor: pointer; transition: all 0.2s; background: var(--gray-100); }
+  .upload-area:hover { border-color: var(--green); background: rgba(0,200,150,0.05); }
+  .upload-area .icon { font-size: 28px; margin-bottom: 8px; }
+  .upload-area p { font-size: 12px; color: var(--gray-500); }
+  .upload-area p strong { color: var(--green); }
+  .upload-area input { display: none; }
+  .uploaded-file { display: none; align-items: center; gap: 8px; background: rgba(0,200,150,0.08); border: 1px solid rgba(0,200,150,0.3); border-radius: 8px; padding: 8px 12px; margin-top: 8px; font-size: 12px; color: var(--green-dark); }
+
+  .cert-list { display: flex; flex-direction: column; gap: 10px; }
+  .cert-item { background: var(--gray-100); border-radius: 10px; padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; }
+  .cert-item-info { font-size: 12px; }
+  .cert-item-info strong { display: block; font-size: 13px; color: var(--navy); }
+  .cert-item-info span { color: var(--gray-500); }
+  .btn-remove-cert { width: 26px; height: 26px; border-radius: 50%; background: rgba(229,62,62,0.1); color: var(--danger); border: none; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; }
+
+  .form-nav { display: flex; justify-content: space-between; align-items: center; margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--gray-300); }
+  .btn { padding: 11px 24px; border-radius: 10px; border: none; font-family: 'Cairo', sans-serif; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 8px; }
+  .btn-primary { background: var(--green); color: white; }
+  .btn-primary:hover { background: var(--green-dark); transform: translateY(-1px); }
+  .btn-secondary { background: var(--gray-100); color: var(--navy); border: 1px solid var(--gray-300); }
+  .btn-secondary:hover { background: var(--gray-300); }
+  .btn-danger { background: rgba(229,62,62,0.1); color: var(--danger); }
+  .btn-danger:hover { background: var(--danger); color: white; }
+  .btn-gold { background: var(--gold); color: var(--navy); }
+  .btn-gold:hover { background: var(--gold-light); }
+  .btn-sm { padding: 7px 14px; font-size: 12px; border-radius: 8px; }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
+
+  .consent-box { background: rgba(0,200,150,0.06); border: 1px solid rgba(0,200,150,0.25); border-radius: 12px; padding: 16px; }
+  .consent-box label { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; font-weight: 400; font-size: 13px; }
+  .consent-box input[type=checkbox] { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--green); flex-shrink: 0; }
+
+  .success-screen { text-align: center; padding: 48px 28px; }
+  .success-icon { width: 80px; height: 80px; background: rgba(0,200,150,0.12); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 36px; margin: 0 auto 20px; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(0,200,150,0.3); } 50% { box-shadow: 0 0 0 16px rgba(0,200,150,0); } }
+  .success-screen h2 { font-size: 24px; font-weight: 800; color: var(--navy); margin-bottom: 10px; }
+  .success-screen p { color: var(--gray-500); font-size: 14px; margin-bottom: 6px; }
+  .pending-badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(221,107,32,0.1); border: 1px solid rgba(221,107,32,0.3); color: var(--warning); padding: 8px 18px; border-radius: 50px; font-size: 13px; font-weight: 600; margin: 16px 0; }
+
+  .alert { display: none; padding: 12px 16px; border-radius: 10px; font-size: 13px; margin-bottom: 16px; align-items: center; gap: 10px; }
+  .alert.show { display: flex; }
+  .alert.success { background: rgba(56,161,105,0.1); border: 1px solid rgba(56,161,105,0.3); color: var(--success); }
+  .alert.error { background: rgba(229,62,62,0.1); border: 1px solid rgba(229,62,62,0.3); color: var(--danger); }
+
+  /* ADMIN */
+  .admin-wrap { display: flex; min-height: calc(100vh - 55px); }
+  .admin-sidebar { width: 220px; background: var(--navy); flex-shrink: 0; padding: 20px 0; display: flex; flex-direction: column; }
+  .sidebar-menu { flex: 1; }
+  .sidebar-item { display: flex; align-items: center; gap: 10px; padding: 11px 20px; color: var(--gray-300); font-size: 13px; cursor: pointer; transition: all 0.2s; border-right: 3px solid transparent; }
+  .sidebar-item:hover { color: white; background: rgba(255,255,255,0.05); }
+  .sidebar-item.active { color: var(--green); border-right-color: var(--green); background: rgba(0,200,150,0.08); }
+  .sidebar-footer { padding: 16px 20px; border-top: 1px solid var(--navy-light); }
+  .sidebar-footer p { color: var(--gray-500); font-size: 11px; line-height: 1.6; }
+  .admin-main { flex: 1; padding: 28px; overflow-x: auto; }
+  .admin-header { margin-bottom: 24px; }
+  .admin-header h2 { font-size: 22px; font-weight: 800; color: var(--navy); }
+  .admin-header p { font-size: 13px; color: var(--gray-500); margin-top: 4px; }
+
+  .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+  .stat-card { background: white; border-radius: 14px; padding: 18px 20px; border-right: 4px solid transparent; box-shadow: 0 2px 10px rgba(0,0,0,0.06); }
+  .stat-card.green { border-right-color: var(--green); }
+  .stat-card.gold { border-right-color: var(--gold); }
+  .stat-card.orange { border-right-color: var(--warning); }
+  .stat-card.red { border-right-color: var(--danger); }
+  .stat-value { font-size: 32px; font-weight: 900; color: var(--navy); }
+  .stat-label { font-size: 12px; color: var(--gray-500); margin-top: 4px; }
+
+  .admin-section { background: white; border-radius: 14px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.06); }
+  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; flex-wrap: wrap; gap: 10px; }
+  .section-header h3 { font-size: 16px; font-weight: 700; color: var(--navy); }
+  .filter-row { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+  .filter-btn { padding: 6px 14px; border-radius: 8px; border: 1.5px solid var(--gray-300); background: white; font-family: 'Cairo', sans-serif; font-size: 12px; cursor: pointer; color: var(--gray-700); transition: all 0.2s; }
+  .filter-btn.active { background: var(--navy); color: white; border-color: var(--navy); }
+  .filter-btn.pending.active { background: var(--warning); border-color: var(--warning); }
+  .filter-btn.approved.active { background: var(--success); border-color: var(--success); }
+  .filter-btn.rejected.active { background: var(--danger); border-color: var(--danger); }
+
+  .members-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .members-table th { text-align: right; padding: 10px 14px; border-bottom: 2px solid var(--gray-100); color: var(--gray-500); font-weight: 600; font-size: 11px; white-space: nowrap; }
+  .members-table td { padding: 13px 14px; border-bottom: 1px solid var(--gray-100); color: var(--navy); vertical-align: middle; }
+  .members-table tr:last-child td { border-bottom: none; }
+  .members-table tr:hover td { background: rgba(0,200,150,0.03); }
+  .member-avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; color: white; flex-shrink: 0; }
+  .member-name-cell { display: flex; align-items: center; gap: 10px; }
+  .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .badge.pending { background: rgba(221,107,32,0.12); color: var(--warning); }
+  .badge.approved { background: rgba(56,161,105,0.12); color: var(--success); }
+  .badge.rejected { background: rgba(229,62,62,0.12); color: var(--danger); }
+  .action-btns { display: flex; gap: 6px; }
+  .btn-action { width: 30px; height: 30px; border-radius: 7px; border: none; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+  .btn-approve { background: rgba(56,161,105,0.1); color: var(--success); }
+  .btn-approve:hover { background: var(--success); color: white; }
+  .btn-reject { background: rgba(229,62,62,0.1); color: var(--danger); }
+  .btn-reject:hover { background: var(--danger); color: white; }
+  .btn-view { background: rgba(10,22,40,0.08); color: var(--navy); }
+  .btn-view:hover { background: var(--navy); color: white; }
+
+  /* PROFILE */
+  .profile-wrap { max-width: 860px; margin: 0 auto; padding: 28px 16px; }
+  .profile-header-card { background: linear-gradient(135deg, var(--navy) 0%, var(--navy-mid) 100%); border-radius: 20px; padding: 32px; margin-bottom: 20px; display: flex; align-items: center; gap: 24px; position: relative; overflow: hidden; }
+  .profile-header-card::after { content: '⚡'; font-size: 120px; position: absolute; left: -10px; top: -10px; opacity: 0.04; line-height: 1; }
+  .profile-avatar-big { width: 90px; height: 90px; border-radius: 50%; border: 4px solid var(--green); flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 36px; font-weight: 800; color: white; }
+  .profile-info { flex: 1; }
+  .profile-info h2 { color: white; font-size: 24px; font-weight: 800; }
+  .profile-info .job { color: var(--green-light); font-size: 14px; margin-top: 4px; }
+  .profile-info .meta { color: var(--gray-300); font-size: 12px; margin-top: 8px; display: flex; gap: 16px; flex-wrap: wrap; }
+  .member-id-badge { background: rgba(0,200,150,0.15); border: 1px solid rgba(0,200,150,0.4); color: var(--green); padding: 4px 12px; border-radius: 8px; font-size: 12px; font-weight: 700; letter-spacing: 1px; display: inline-block; margin-top: 8px; }
+  .profile-status-badge { display: flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 10px; font-size: 13px; font-weight: 600; flex-shrink: 0; }
+  .profile-status-badge.approved { background: rgba(56,161,105,0.2); color: #68D391; }
+  .profile-status-badge.pending { background: rgba(221,107,32,0.2); color: #F6AD55; }
+  .profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; }
+  .profile-card { background: white; border-radius: 14px; padding: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.06); }
+  .profile-card h3 { font-size: 14px; font-weight: 700; color: var(--navy); margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+  .info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--gray-100); font-size: 13px; }
+  .info-row:last-child { border-bottom: none; }
+  .info-row .info-label { color: var(--gray-500); }
+  .info-row .info-value { color: var(--navy); font-weight: 500; }
+  .cert-badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(10,22,40,0.06); border-radius: 8px; padding: 6px 10px; margin: 4px; font-size: 12px; }
+
+  /* CARD */
+  .card-wrap { display: flex; justify-content: center; padding: 20px 0; }
+  .membership-card { width: 380px; background: linear-gradient(135deg, var(--navy) 0%, #0D3060 60%, #083055 100%); border-radius: 18px; padding: 24px; position: relative; overflow: hidden; box-shadow: 0 20px 50px rgba(10,22,40,0.4); color: white; font-family: 'Cairo', sans-serif; }
+  .membership-card::before { content: ''; position: absolute; top: -60px; right: -60px; width: 200px; height: 200px; background: radial-gradient(circle, rgba(0,200,150,0.25) 0%, transparent 70%); border-radius: 50%; }
+  .membership-card::after { content: '⚡'; font-size: 100px; position: absolute; left: -15px; bottom: -20px; opacity: 0.06; line-height: 1; }
+  .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+  .card-logo { display: flex; align-items: center; gap: 8px; }
+  .card-logo .logo-box { width: 32px; height: 32px; background: var(--green); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; }
+  .card-logo .logo-name { font-size: 10px; line-height: 1.3; }
+  .card-logo .logo-name strong { display: block; font-size: 11px; }
+  .card-type { font-size: 10px; color: var(--green); background: rgba(0,200,150,0.15); border: 1px solid rgba(0,200,150,0.3); padding: 3px 10px; border-radius: 20px; }
+  .card-avatar { width: 56px; height: 56px; border-radius: 50%; border: 3px solid var(--green); display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 800; color: white; margin-bottom: 10px; background: rgba(0,200,150,0.15); }
+  .card-name { font-size: 17px; font-weight: 800; margin-bottom: 2px; }
+  .card-job { font-size: 11px; color: rgba(255,255,255,0.6); margin-bottom: 16px; }
+  .card-footer { display: flex; justify-content: space-between; align-items: flex-end; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.1); }
+  .card-id-section .label { font-size: 9px; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 1px; }
+  .card-id-section .value { font-size: 16px; font-weight: 700; color: var(--green); letter-spacing: 2px; }
+  .card-qr { width: 52px; height: 52px; background: white; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 28px; }
+  .card-valid { font-size: 9px; color: rgba(255,255,255,0.5); margin-top: 4px; }
+  .card-strip { height: 4px; background: linear-gradient(90deg, var(--green), var(--gold)); border-radius: 2px; margin-bottom: 18px; }
+  .print-btn-wrap { text-align: center; margin-top: 16px; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+
+  /* MODAL */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(10,22,40,0.7); z-index: 200; align-items: center; justify-content: center; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: white; border-radius: 18px; width: 90%; max-width: 540px; max-height: 90vh; overflow-y: auto; animation: modalIn 0.25s ease; }
+  @keyframes modalIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .modal-header { background: var(--navy); padding: 20px 24px; border-radius: 18px 18px 0 0; display: flex; align-items: center; justify-content: space-between; }
+  .modal-header h3 { color: white; font-size: 16px; font-weight: 700; }
+  .modal-close { background: rgba(255,255,255,0.1); border: none; color: white; width: 32px; height: 32px; border-radius: 8px; cursor: pointer; font-size: 18px; display: flex; align-items: center; justify-content: center; }
+  .modal-body { padding: 24px; }
+
+  /* LOADING */
+  .loading-overlay { display: none; position: fixed; inset: 0; background: rgba(10,22,40,0.6); z-index: 300; align-items: center; justify-content: center; flex-direction: column; gap: 16px; }
+  .loading-overlay.show { display: flex; }
+  .spinner { width: 48px; height: 48px; border: 4px solid rgba(0,200,150,0.2); border-top: 4px solid var(--green); border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { color: white; font-size: 14px; font-weight: 600; }
+
+  .firestore-error { background: rgba(229,62,62,0.1); border: 1px solid rgba(229,62,62,0.3); border-radius: 10px; padding: 12px 16px; font-size: 12px; color: var(--danger); margin-bottom: 16px; display: none; }
+
+  @media (max-width: 680px) {
+    .form-grid { grid-template-columns: 1fr; }
+    .form-grid.three { grid-template-columns: 1fr 1fr; }
+    .form-group.span2, .form-group.span3 { grid-column: span 1; }
+    .stats-grid { grid-template-columns: 1fr 1fr; }
+    .profile-grid { grid-template-columns: 1fr; }
+    .admin-wrap { flex-direction: column; }
+    .admin-sidebar { width: 100%; }
+    .profile-header-card { flex-direction: column; text-align: center; }
+    .membership-card { width: 100%; max-width: 380px; }
+    .step-label { display: none; }
+    .step-connector { width: 20px; }
+    .nav-right { flex-direction: column; gap: 4px; align-items: flex-end; }
+  }
+
+  @media print {
+    body * { visibility: hidden; }
+    .membership-card, .membership-card * { visibility: visible; }
+    .membership-card { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+  }
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="loading-text">جاري الحفظ في السحابة...</div>
+</div>
+
+<!-- NAV -->
+<nav class="top-nav">
+  <div class="nav-logo">
+    <div class="logo-icon">⚡</div>
+    <div class="logo-text">
+      <div class="title">جمعية تقنيات المركبات الكهربائية</div>
+      <div class="sub">AEVTSA • نظام العضوية السحابي</div>
+    </div>
+  </div>
+  <div class="nav-right">
+    <div class="cloud-badge">☁️ Firebase • بيانات سحابية</div>
+    <div class="nav-tabs">
+      <button class="nav-tab active" onclick="showPage('register')">📝 التسجيل</button>
+      <button class="nav-tab" onclick="showPage('admin')">🛡️ لوحة الإدارة</button>
+      <button class="nav-tab" id="profileTab" style="display:none" onclick="showPage('profile')">👤 ملفي</button>
+    </div>
+  </div>
+</nav>
+
+<!-- ===== REGISTER ===== -->
+<div class="page active" id="page-register">
+  <div class="reg-hero">
+    <div class="reg-badge">⚡ عضوية موثوقة • سحابية آمنة</div>
+    <h1>انضم إلى <span>جمعيتنا</span><br>وكن جزءاً من المستقبل</h1>
+    <p>كن جزءاً من مجتمع تقنيات المركبات الكهربائية في المملكة العربية السعودية</p>
+    <div class="ministry-badge">🏛️ تحت إشراف وزارة الطاقة | المملكة العربية السعودية</div>
+  </div>
+
+  <div class="reg-container">
+    <div class="reg-card">
+      <div class="reg-steps">
+        <div class="step-item">
+          <div class="step-circle active" id="sc1">1</div>
+          <span class="step-label active" id="sl1">البيانات الأساسية</span>
+        </div>
+        <div class="step-connector" id="conn1"></div>
+        <div class="step-item">
+          <div class="step-circle" id="sc2">2</div>
+          <span class="step-label" id="sl2">الخبرات المهنية</span>
+        </div>
+        <div class="step-connector" id="conn2"></div>
+        <div class="step-item">
+          <div class="step-circle" id="sc3">3</div>
+          <span class="step-label" id="sl3">الشهادات</span>
+        </div>
+        <div class="step-connector" id="conn3"></div>
+        <div class="step-item">
+          <div class="step-circle" id="sc4">4</div>
+          <span class="step-label" id="sl4">المراجعة</span>
+        </div>
+      </div>
+
+      <div class="reg-form-body">
+        <!-- STEP 1 -->
+        <div class="form-step active" id="step1">
+          <div class="step-title">📋 البيانات الشخصية والأساسية</div>
+          <div class="step-subtitle">يرجى تعبئة جميع الحقول المطلوبة بدقة</div>
+          <div class="alert" id="alert1"></div>
+          <div class="form-grid">
+            <div class="form-group"><label>الاسم الأول <span class="req">*</span></label><input type="text" id="fname" placeholder="محمد"></div>
+            <div class="form-group"><label>الاسم الأخير <span class="req">*</span></label><input type="text" id="lname" placeholder="العنزي"></div>
+            <div class="form-group"><label>رقم الهوية الوطنية <span class="req">*</span></label><input type="text" id="nid" placeholder="10XXXXXXXXX" maxlength="10"></div>
+            <div class="form-group"><label>الجنسية <span class="req">*</span></label><select id="nationality"><option value="">اختر...</option><option>سعودي</option><option>مقيم</option></select></div>
+            <div class="form-group"><label>البريد الإلكتروني <span class="req">*</span></label><input type="email" id="email" placeholder="name@example.com"></div>
+            <div class="form-group"><label>رقم الجوال <span class="req">*</span></label><input type="tel" id="phone" placeholder="05XXXXXXXX"></div>
+            <div class="form-group"><label>المنطقة / المدينة <span class="req">*</span></label>
+              <select id="city"><option value="">اختر...</option><option>الرياض</option><option>جدة</option><option>مكة المكرمة</option><option>المدينة المنورة</option><option>الدمام</option><option>الخبر</option><option>الأحساء</option><option>حفر الباطن</option><option>تبوك</option><option>أبها</option><option>القصيم</option><option>حائل</option><option>نجران</option><option>جازان</option><option>الجوف</option><option>أخرى</option></select>
+            </div>
+            <div class="form-group"><label>نوع العضوية <span class="req">*</span></label>
+              <select id="memtype"><option value="">اختر...</option><option>عضو عامل</option><option>عضو مشارك</option><option>عضو منتسب</option><option>عضو شرفي</option></select>
+            </div>
+            <div class="form-group span2"><label>جهة العمل / الدراسة</label><input type="text" id="org" placeholder="اسم الجهة"></div>
+          </div>
+          <div class="form-nav">
+            <div></div>
+            <button class="btn btn-primary" onclick="nextStep(1)">التالي ←</button>
+          </div>
+        </div>
+
+        <!-- STEP 2 -->
+        <div class="form-step" id="step2">
+          <div class="step-title">💼 الخبرات والمؤهلات المهنية</div>
+          <div class="step-subtitle">أضف خبراتك ذات الصلة بتقنيات المركبات الكهربائية</div>
+          <div class="form-grid">
+            <div class="form-group"><label>المسمى الوظيفي الحالي</label><input type="text" id="jobtitle" placeholder="مهندس / باحث / متخصص..."></div>
+            <div class="form-group"><label>سنوات الخبرة</label>
+              <select id="expyears"><option value="">اختر...</option><option>أقل من سنة</option><option>1-3 سنوات</option><option>3-5 سنوات</option><option>5-10 سنوات</option><option>أكثر من 10 سنوات</option></select>
+            </div>
+            <div class="form-group span2"><label>مجالات الاهتمام</label>
+              <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px;">
+                <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="بطاريات وتخزين الطاقة" style="accent-color:var(--green)">بطاريات وتخزين الطاقة</label>
+                <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="بنية التحميل والشحن" style="accent-color:var(--green)">بنية التحميل والشحن</label>
+                <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="القيادة الذاتية" style="accent-color:var(--green)">القيادة الذاتية</label>
+                <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="المحركات الكهربائية" style="accent-color:var(--green)">المحركات الكهربائية</label>
+                <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="الطاقة المتجددة" style="accent-color:var(--green)">الطاقة المتجددة</label>
+                <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="السياسات والتشريعات" style="accent-color:var(--green)">السياسات والتشريعات</label>
+                <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="الاستدامة والبيئة" style="accent-color:var(--green)">الاستدامة والبيئة</label>
+                <label style="font-weight:400;display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="interest-cb" value="المركبات التجارية" style="accent-color:var(--green)">المركبات التجارية</label>
+              </div>
+            </div>
+            <div class="form-group span2"><label>نبذة مختصرة</label><textarea id="bio" placeholder="اكتب نبذة عن خبرتك ودوافعك للانضمام..."></textarea></div>
+            <div class="form-group"><label>LinkedIn (اختياري)</label><input type="text" id="linkedin" placeholder="linkedin.com/in/..."></div>
+            <div class="form-group"><label>الموقع الشخصي (اختياري)</label><input type="text" id="website" placeholder="https://..."></div>
+          </div>
+          <div class="form-nav">
+            <button class="btn btn-secondary" onclick="prevStep(2)">→ السابق</button>
+            <button class="btn btn-primary" onclick="nextStep(2)">التالي ←</button>
+          </div>
+        </div>
+
+        <!-- STEP 3 -->
+        <div class="form-step" id="step3">
+          <div class="step-title">🎓 الشهادات والمؤهلات العلمية</div>
+          <div class="step-subtitle">أضف شهاداتك الأكاديمية والمهنية</div>
+          <div class="cert-list" id="certList"></div>
+          <div style="background:var(--gray-100);border-radius:12px;padding:16px;margin-top:14px;">
+            <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:12px;">➕ إضافة شهادة</div>
+            <div class="form-grid three">
+              <div class="form-group"><label>الشهادة</label><select id="newCertDegree"><option value="">اختر...</option><option>دبلوم</option><option>بكالوريوس</option><option>ماجستير</option><option>دكتوراه</option><option>شهادة مهنية</option><option>دورة تدريبية</option></select></div>
+              <div class="form-group"><label>التخصص</label><input type="text" id="newCertField" placeholder="الهندسة الكهربائية"></div>
+              <div class="form-group"><label>الجهة المانحة</label><input type="text" id="newCertIssuer" placeholder="جامعة / مؤسسة"></div>
+              <div class="form-group"><label>سنة الحصول</label><input type="text" id="newCertYear" placeholder="2023" maxlength="4"></div>
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="addCert()" style="margin-top:10px;">➕ إضافة</button>
+          </div>
+          <div style="margin-top:16px;">
+            <label style="display:block;margin-bottom:8px;">📎 رفع ملفات الشهادات</label>
+            <div class="upload-area" onclick="document.getElementById('certFiles').click()">
+              <div class="icon">📂</div>
+              <p><strong>اضغط لرفع الملفات</strong> أو اسحبها هنا</p>
+              <p>PDF, JPG, PNG — حد أقصى 5MB لكل ملف</p>
+              <input type="file" id="certFiles" multiple accept=".pdf,.jpg,.jpeg,.png" onchange="handleFileUpload(this)">
+            </div>
+            <div class="uploaded-file" id="uploadedFiles"></div>
+          </div>
+          <div class="form-nav">
+            <button class="btn btn-secondary" onclick="prevStep(3)">→ السابق</button>
+            <button class="btn btn-primary" onclick="nextStep(3)">التالي ←</button>
+          </div>
+        </div>
+
+        <!-- STEP 4 -->
+        <div class="form-step" id="step4">
+          <div class="step-title">✅ مراجعة الطلب والإرسال</div>
+          <div class="step-subtitle">تأكد من صحة البيانات قبل الإرسال النهائي</div>
+          <div id="summaryBox" style="background:var(--gray-100);border-radius:14px;padding:18px;margin-bottom:16px;font-size:13px;"></div>
+          <div class="consent-box">
+            <label>
+              <input type="checkbox" id="consentCheck">
+              <span>أقر بأن جميع المعلومات صحيحة، وأوافق على الشروط والأحكام الخاصة بعضوية جمعية تقنيات المركبات الكهربائية.</span>
+            </label>
+          </div>
+          <div class="form-nav">
+            <button class="btn btn-secondary" onclick="prevStep(4)">→ السابق</button>
+            <button class="btn btn-primary" onclick="submitApp()" id="submitBtn">إرسال الطلب ☁️</button>
+          </div>
+        </div>
+
+        <!-- SUCCESS -->
+        <div class="form-step" id="stepSuccess">
+          <div class="success-screen">
+            <div class="success-icon">✅</div>
+            <h2>تم الحفظ في السحابة بنجاح!</h2>
+            <p>تم إرسال طلبك وحفظه في قاعدة البيانات السحابية</p>
+            <p>الإدارة ستشاهد طلبك فوراً في لوحة التحكم</p>
+            <div class="pending-badge">⏳ طلبك قيد المراجعة</div>
+            <p id="appRefNum" style="font-weight:700;font-size:15px;color:var(--navy);margin-top:8px;"></p>
+            <p style="margin-top:12px;font-size:12px;color:var(--gray-500);">سيتم إخطارك عبر البريد الإلكتروني خلال 5-7 أيام عمل</p>
+            <div style="display:flex;gap:10px;justify-content:center;margin-top:24px;flex-wrap:wrap;">
+              <button class="btn btn-primary" onclick="showPage('admin')">🛡️ لوحة الإدارة</button>
+              <button class="btn btn-secondary" onclick="showPage('profile')">👤 ملفي الشخصي</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== ADMIN ===== -->
+<div class="page" id="page-admin">
+  <div class="admin-wrap">
+    <aside class="admin-sidebar">
+      <div class="sidebar-menu">
+        <div class="sidebar-item active" onclick="setFilter('all', document.querySelector(\'[data-filter=all]\'))"><span>👥</span> جميع الأعضاء</div>
+        <div class="sidebar-item" onclick="setFilter('pending', document.querySelector(\'[data-filter=pending]\'))"><span>⏳</span> طلبات معلقة <span id="pendingCount" style="background:var(--warning);color:white;border-radius:50px;padding:1px 8px;font-size:11px;margin-right:auto;display:none;"></span></div>
+        <div class="sidebar-item" onclick="setFilter('approved', document.querySelector(\'[data-filter=approved]\'))"><span>✅</span> أعضاء مقبولون</div>
+        <div class="sidebar-item" onclick="setFilter('rejected', document.querySelector(\'[data-filter=rejected]\'))"><span>❌</span> طلبات مرفوضة</div>
+      </div>
+      <div class="sidebar-footer">
+        <p>☁️ بيانات سحابية مباشرة<br>Firebase Firestore<br>جمعية تقنيات المركبات الكهربائية<br>تحت إشراف وزارة الطاقة</p>
+      </div>
+    </aside>
+    <main class="admin-main">
+      <div class="admin-header">
+        <h2>لوحة تحكم إدارة الأعضاء ☁️</h2>
+        <p>البيانات محدّثة لحظياً من Firebase Firestore</p>
+      </div>
+      <div class="stats-grid">
+        <div class="stat-card green"><div class="stat-value" id="statTotal">—</div><div class="stat-label">إجمالي الطلبات</div></div>
+        <div class="stat-card gold"><div class="stat-value" id="statApproved">—</div><div class="stat-label">أعضاء مقبولون</div></div>
+        <div class="stat-card orange"><div class="stat-value" id="statPending">—</div><div class="stat-label">طلبات معلقة</div></div>
+        <div class="stat-card red"><div class="stat-value" id="statRejected">—</div><div class="stat-label">طلبات مرفوضة</div></div>
+      </div>
+      <div class="admin-section">
+        <div class="section-header">
+          <h3>📋 قائمة الأعضاء والطلبات</h3>
+          <input type="text" id="searchInput" placeholder="🔍 بحث بالاسم أو الرقم..." style="padding:8px 14px;border-radius:9px;border:1.5px solid var(--gray-300);font-family:'Cairo',sans-serif;font-size:13px;width:220px;" onkeyup="renderTable()">
+        </div>
+        <div class="filter-row">
+          <button class="filter-btn active" data-filter="all" onclick="setFilter('all',this)">الكل</button>
+          <button class="filter-btn pending" data-filter="pending" onclick="setFilter('pending',this)">⏳ معلق</button>
+          <button class="filter-btn approved" data-filter="approved" onclick="setFilter('approved',this)">✅ مقبول</button>
+          <button class="filter-btn rejected" data-filter="rejected" onclick="setFilter('rejected',this)">❌ مرفوض</button>
+        </div>
+        <div style="overflow-x:auto;">
+          <table class="members-table">
+            <thead>
+              <tr>
+                <th>رقم العضوية</th><th>الاسم</th><th>نوع العضوية</th>
+                <th>المدينة</th><th>تاريخ الطلب</th><th>الحالة</th><th>الإجراءات</th>
+              </tr>
+            </thead>
+            <tbody id="membersTableBody"></tbody>
+          </table>
+        </div>
+        <div id="emptyState" style="text-align:center;padding:40px;color:var(--gray-500);display:none;">
+          <div style="font-size:40px;margin-bottom:12px;">📭</div>
+          <p>لا توجد سجلات</p>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- ===== PROFILE ===== -->
+<div class="page" id="page-profile">
+  <div class="profile-wrap">
+    <div id="profileContent"><div style="text-align:center;padding:60px;color:var(--gray-500);">سجّل طلب عضوية أولاً لعرض ملفك الشخصي</div></div>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modalTitle">ملف العضو</h3>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+const avatarColors = ['#00C896','#E53E3E','#DD6B20','#3182CE','#805AD5','#38A169','#D69E2E','#E53E3E'];
+
+function genMemberId() {
+  const count = window.members.length + 1;
+  return 'AEVTSA-' + count.toString().padStart(5,'0');
+}
+
+function showPage(page) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('page-' + page).classList.add('active');
+  const tabs = document.querySelectorAll('.nav-tab');
+  if (page==='register') tabs[0].classList.add('active');
+  if (page==='admin') { tabs[1].classList.add('active'); renderAdmin(); }
+  if (page==='profile') tabs[2].classList.add('active');
+}
+
+let currentStep = 1;
+function updateStepUI(step) {
+  for (let i=1;i<=4;i++) {
+    document.getElementById('sc'+i).className = 'step-circle'+(i<step?' done':i===step?' active':'');
+    document.getElementById('sl'+i).className = 'step-label'+(i===step?' active':'');
+    if (i<4) document.getElementById('conn'+i).className = 'step-connector'+(i<step?' done':'');
+  }
+}
+
+function nextStep(from) {
+  if (from===1) {
+    const err = validateStep1();
+    if (err) { showAlert('alert1',err,'error'); return; }
+    hideAlert('alert1');
+    window.formData = {
+      fname: document.getElementById('fname').value.trim(),
+      lname: document.getElementById('lname').value.trim(),
+      nid: document.getElementById('nid').value.trim(),
+      nationality: document.getElementById('nationality').value,
+      email: document.getElementById('email').value.trim(),
+      phone: document.getElementById('phone').value.trim(),
+      city: document.getElementById('city').value,
+      memtype: document.getElementById('memtype').value,
+      org: document.getElementById('org').value.trim()
+    };
+  }
+  if (from===2) {
+    Object.assign(window.formData, {
+      jobtitle: document.getElementById('jobtitle').value.trim(),
+      expyears: document.getElementById('expyears').value,
+      interests: [...document.querySelectorAll('.interest-cb:checked')].map(c=>c.value),
+      bio: document.getElementById('bio').value.trim(),
+      linkedin: document.getElementById('linkedin').value.trim(),
+      website: document.getElementById('website').value.trim()
+    });
+  }
+  if (from===3) { window.formData.certs = [...window.certs]; }
+  document.getElementById('step'+from).classList.remove('active');
+  document.getElementById('step'+(from+1)).classList.add('active');
+  currentStep = from+1;
+  updateStepUI(currentStep);
+  if (from===3) buildSummary();
+}
+
+function prevStep(from) {
+  document.getElementById('step'+from).classList.remove('active');
+  document.getElementById('step'+(from-1)).classList.add('active');
+  currentStep = from-1;
+  updateStepUI(currentStep);
+}
+
+function validateStep1() {
+  if (!document.getElementById('fname').value.trim()) return 'الاسم الأول مطلوب';
+  if (!document.getElementById('lname').value.trim()) return 'الاسم الأخير مطلوب';
+  const nid = document.getElementById('nid').value.trim();
+  if (!nid || nid.length!==10) return 'رقم الهوية يجب أن يكون 10 أرقام';
+  if (!document.getElementById('nationality').value) return 'الجنسية مطلوبة';
+  const email = document.getElementById('email').value.trim();
+  if (!email || !email.includes('@')) return 'البريد الإلكتروني غير صحيح';
+  if (!document.getElementById('phone').value.trim()) return 'رقم الجوال مطلوب';
+  if (!document.getElementById('city').value) return 'المدينة مطلوبة';
+  if (!document.getElementById('memtype').value) return 'نوع العضوية مطلوب';
+  return null;
+}
+
+function showAlert(id, msg, type) { const el=document.getElementById(id); el.className='alert show '+type; el.innerHTML=(type==='error'?'⚠️ ':'✅ ')+msg; }
+function hideAlert(id) { document.getElementById(id).className='alert'; }
+
+function addCert() {
+  const deg=document.getElementById('newCertDegree').value;
+  const field=document.getElementById('newCertField').value.trim();
+  const issuer=document.getElementById('newCertIssuer').value.trim();
+  const year=document.getElementById('newCertYear').value.trim();
+  if (!deg && !field) return;
+  window.certs.push({deg,field,issuer,year});
+  renderCerts();
+  ['newCertDegree','newCertField','newCertIssuer','newCertYear'].forEach(id=>document.getElementById(id).value='');
+}
+
+function removeCert(i) { window.certs.splice(i,1); renderCerts(); }
+
+function renderCerts() {
+  const list=document.getElementById('certList');
+  if (!list) return;
+  if (window.certs.length===0) { list.innerHTML='<p style="font-size:12px;color:var(--gray-500);text-align:center;padding:10px;">لم تتم إضافة أي شهادات بعد</p>'; return; }
+  list.innerHTML=window.certs.map((c,i)=>`<div class="cert-item"><div class="cert-item-info"><strong>🎓 ${c.deg} ${c.field?'- '+c.field:''}</strong><span>${c.issuer||''} ${c.year?'| '+c.year:''}</span></div><button class="btn-remove-cert" onclick="removeCert(${i})">✕</button></div>`).join('');
+}
+
+function handleFileUpload(input) {
+  const names=[...input.files].map(f=>f.name).join('، ');
+  const el=document.getElementById('uploadedFiles');
+  el.style.display='flex'; el.innerHTML='📎 '+names;
+}
+
+function buildSummary() {
+  const fd=window.formData;
+  document.getElementById('summaryBox').innerHTML=`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <div><div style="font-size:11px;color:var(--gray-500);margin-bottom:3px;">الاسم الكامل</div><div style="font-weight:600">${fd.fname} ${fd.lname}</div></div>
+      <div><div style="font-size:11px;color:var(--gray-500);margin-bottom:3px;">رقم الهوية</div><div style="font-weight:600">${fd.nid}</div></div>
+      <div><div style="font-size:11px;color:var(--gray-500);margin-bottom:3px;">البريد</div><div style="font-weight:600">${fd.email}</div></div>
+      <div><div style="font-size:11px;color:var(--gray-500);margin-bottom:3px;">الجوال</div><div style="font-weight:600">${fd.phone}</div></div>
+      <div><div style="font-size:11px;color:var(--gray-500);margin-bottom:3px;">المدينة</div><div style="font-weight:600">${fd.city}</div></div>
+      <div><div style="font-size:11px;color:var(--gray-500);margin-bottom:3px;">نوع العضوية</div><div style="font-weight:600;color:var(--green)">${fd.memtype}</div></div>
+      ${fd.jobtitle?`<div><div style="font-size:11px;color:var(--gray-500)">المسمى الوظيفي</div><div style="font-weight:600">${fd.jobtitle}</div></div>`:''}
+      ${fd.expyears?`<div><div style="font-size:11px;color:var(--gray-500)">سنوات الخبرة</div><div style="font-weight:600">${fd.expyears}</div></div>`:''}
+      ${fd.interests&&fd.interests.length>0?`<div style="grid-column:span 2"><div style="font-size:11px;color:var(--gray-500);margin-bottom:6px;">مجالات الاهتمام</div><div>${fd.interests.map(i=>`<span style="background:rgba(0,200,150,0.1);color:var(--green-dark);padding:3px 10px;border-radius:20px;font-size:12px;margin:2px;display:inline-block;">${i}</span>`).join('')}</div></div>`:''}
+      ${window.certs.length>0?`<div style="grid-column:span 2"><div style="font-size:11px;color:var(--gray-500);margin-bottom:6px;">الشهادات (${window.certs.length})</div><div>${window.certs.map(c=>`<span style="background:rgba(10,22,40,0.06);padding:4px 10px;border-radius:8px;font-size:12px;margin:2px;display:inline-block;">🎓 ${c.deg} ${c.field}</span>`).join('')}</div></div>`:''}
+    </div>`;
+}
+
+async function submitApp() {
+  if (!document.getElementById('consentCheck').checked) { alert('يجب الموافقة على الشروط والأحكام'); return; }
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true;
+  document.getElementById('loadingOverlay').classList.add('show');
+  try {
+    const memberId = genMemberId();
+    const colorIdx = window.members.length % avatarColors.length;
+    const memberData = {
+      id: memberId,
+      ...window.formData,
+      certs: window.certs,
+      status: 'pending',
+      appDate: new Date().toLocaleDateString('ar-SA'),
+      color: avatarColors[colorIdx]
+    };
+    await window.submitToFirebase(memberData);
+    document.getElementById('loadingOverlay').classList.remove('show');
+    document.getElementById('step4').classList.remove('active');
+    document.getElementById('stepSuccess').classList.add('active');
+    document.getElementById('appRefNum').textContent = 'رقم الطلب المرجعي: ' + memberId;
+    document.getElementById('profileTab').style.display = '';
+    window.currentViewId = memberId;
+  } catch(e) {
+    document.getElementById('loadingOverlay').classList.remove('show');
+    btn.disabled = false;
+    alert('حدث خطأ في الحفظ. تأكد من إعدادات Firestore (test mode) وحاول مجدداً.\n' + e.message);
+  }
+}
+
+function renderAdmin() {
+  const total = window.members.length;
+  const approved = window.members.filter(m=>m.status==='approved').length;
+  const pending = window.members.filter(m=>m.status==='pending').length;
+  const rejected = window.members.filter(m=>m.status==='rejected').length;
+  document.getElementById('statTotal').textContent = total;
+  document.getElementById('statApproved').textContent = approved;
+  document.getElementById('statPending').textContent = pending;
+  document.getElementById('statRejected').textContent = rejected;
+  const pc = document.getElementById('pendingCount');
+  if (pending>0) { pc.textContent=pending; pc.style.display='inline'; } else pc.style.display='none';
+  renderTable();
+}
+
+function setFilter(f, btn) {
+  window.currentFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  renderTable();
+}
+
+function renderTable() {
+  const search = (document.getElementById('searchInput')||{value:''}).value.trim().toLowerCase();
+  let filtered = window.members.filter(m => {
+    const matchFilter = window.currentFilter==='all' || m.status===window.currentFilter;
+    const matchSearch = !search || (m.fname+' '+m.lname).toLowerCase().includes(search) || (m.id||'').toLowerCase().includes(search) || (m.email||'').toLowerCase().includes(search);
+    return matchFilter && matchSearch;
+  });
+  const tbody = document.getElementById('membersTableBody');
+  const empty = document.getElementById('emptyState');
+  if (!tbody) return;
+  if (filtered.length===0) { tbody.innerHTML=''; empty.style.display='block'; return; }
+  empty.style.display='none';
+  tbody.innerHTML = filtered.map(m=>`
+    <tr>
+      <td><span style="font-weight:700;color:var(--green);font-size:12px;letter-spacing:1px;">${m.id||'—'}</span></td>
+      <td><div class="member-name-cell"><div class="member-avatar" style="background:${m.color||'#00C896'}">${(m.fname||'')[0]||''}${(m.lname||'')[0]||''}</div><div><div style="font-weight:600">${m.fname} ${m.lname}</div><div style="font-size:11px;color:var(--gray-500)">${m.email}</div></div></div></td>
+      <td>${m.memtype||'—'}</td>
+      <td>${m.city||'—'}</td>
+      <td>${m.appDate||'—'}</td>
+      <td><span class="badge ${m.status}">${m.status==='pending'?'⏳ معلق':m.status==='approved'?'✅ مقبول':'❌ مرفوض'}</span></td>
+      <td><div class="action-btns">
+        <button class="btn-action btn-view" title="عرض" onclick="viewMember('${m.id}')">👁</button>
+        ${m.status!=='approved'?`<button class="btn-action btn-approve" title="قبول" onclick="updateStatus('${m.id}','approved')">✓</button>`:''}
+        ${m.status!=='rejected'?`<button class="btn-action btn-reject" title="رفض" onclick="updateStatus('${m.id}','rejected')">✕</button>`:''}
+      </div></td>
+    </tr>`).join('');
+}
+
+async function updateStatus(id, status) {
+  const m = window.members.find(x=>x.id===id);
+  if (!m || !m.firestoreId) return;
+  await window.updateStatusInFirebase(m.firestoreId, status);
+  // UI updates via real-time listener automatically
+}
+
+function viewMember(id) {
+  const m = window.members.find(x=>x.id===id);
+  if (!m) return;
+  document.getElementById('modalTitle').textContent = 'ملف العضو: '+m.fname+' '+m.lname;
+  document.getElementById('modalBody').innerHTML=`
+    <div style="text-align:center;margin-bottom:16px;">
+      <div class="member-avatar" style="background:${m.color};width:60px;height:60px;font-size:22px;margin:0 auto 10px;">${(m.fname||'')[0]}${(m.lname||'')[0]}</div>
+      <div style="font-weight:800;font-size:17px">${m.fname} ${m.lname}</div>
+      <div style="font-size:12px;color:var(--gray-500)">${m.email} | ${m.phone}</div>
+      <span class="member-id-badge">${m.id}</span>
+    </div>
+    <div style="font-size:13px;">
+      <div class="info-row"><span class="info-label">نوع العضوية</span><span class="info-value">${m.memtype}</span></div>
+      <div class="info-row"><span class="info-label">المدينة</span><span class="info-value">${m.city}</span></div>
+      <div class="info-row"><span class="info-label">الجنسية</span><span class="info-value">${m.nationality}</span></div>
+      <div class="info-row"><span class="info-label">الجهة</span><span class="info-value">${m.org||'—'}</span></div>
+      <div class="info-row"><span class="info-label">المسمى الوظيفي</span><span class="info-value">${m.jobtitle||'—'}</span></div>
+      <div class="info-row"><span class="info-label">سنوات الخبرة</span><span class="info-value">${m.expyears||'—'}</span></div>
+      <div class="info-row"><span class="info-label">الحالة</span><span class="info-value"><span class="badge ${m.status}">${m.status==='pending'?'⏳ معلق':m.status==='approved'?'✅ مقبول':'❌ مرفوض'}</span></span></div>
+      ${m.certs&&m.certs.length>0?`<div style="margin-top:10px;"><div style="font-weight:600;margin-bottom:8px;">الشهادات:</div>${m.certs.map(c=>`<span class="cert-badge">🎓 ${c.deg} ${c.field}</span>`).join('')}</div>`:''}
+    </div>
+    <div style="display:flex;gap:10px;margin-top:18px;justify-content:center;flex-wrap:wrap;">
+      ${m.status!=='approved'?`<button class="btn btn-primary btn-sm" onclick="updateStatus('${m.id}','approved');closeModal()">✅ قبول</button>`:''}
+      ${m.status!=='rejected'?`<button class="btn btn-danger btn-sm" onclick="updateStatus('${m.id}','rejected');closeModal()">❌ رفض</button>`:''}
+      <button class="btn btn-secondary btn-sm" onclick="closeModal();window.currentViewId='${m.id}';renderProfile('${m.id}');showPage('profile')">👤 الملف الكامل</button>
+    </div>`;
+  document.getElementById('modalOverlay').classList.add('open');
+}
+
+function closeModal() { document.getElementById('modalOverlay').classList.remove('open'); }
+
+function renderProfile(id) {
+  const m = window.members.find(x=>x.id===id);
+  if (!m) { setTimeout(()=>renderProfile(id), 1000); return; }
+  const isApproved = m.status==='approved';
+  document.getElementById('profileContent').innerHTML=`
+    <div class="profile-header-card">
+      <div class="profile-avatar-big" style="background:rgba(0,200,150,0.15);">${(m.fname||'')[0]}${(m.lname||'')[0]}</div>
+      <div class="profile-info">
+        <h2>${m.fname} ${m.lname}</h2>
+        <div class="job">${m.jobtitle||m.memtype}</div>
+        <div class="meta"><span>📧 ${m.email}</span><span>📱 ${m.phone}</span><span>📍 ${m.city}</span></div>
+        <div class="member-id-badge">${m.id}</div>
+      </div>
+      <div class="profile-status-badge ${m.status}">
+        ${m.status==='approved'?'✅ عضو نشط':m.status==='pending'?'⏳ قيد المراجعة':'❌ مرفوض'}
+      </div>
+    </div>
+    <div class="profile-grid">
+      <div class="profile-card">
+        <h3>👤 البيانات الشخصية</h3>
+        <div class="info-row"><span class="info-label">الاسم الكامل</span><span class="info-value">${m.fname} ${m.lname}</span></div>
+        <div class="info-row"><span class="info-label">الجنسية</span><span class="info-value">${m.nationality}</span></div>
+        <div class="info-row"><span class="info-label">المدينة</span><span class="info-value">${m.city}</span></div>
+        <div class="info-row"><span class="info-label">الجهة</span><span class="info-value">${m.org||'—'}</span></div>
+        <div class="info-row"><span class="info-label">تاريخ الطلب</span><span class="info-value">${m.appDate}</span></div>
+        ${m.approvalDate?`<div class="info-row"><span class="info-label">تاريخ القبول</span><span class="info-value">${m.approvalDate}</span></div>`:''}
+      </div>
+      <div class="profile-card">
+        <h3>💼 البيانات المهنية</h3>
+        <div class="info-row"><span class="info-label">المسمى الوظيفي</span><span class="info-value">${m.jobtitle||'—'}</span></div>
+        <div class="info-row"><span class="info-label">نوع العضوية</span><span class="info-value">${m.memtype}</span></div>
+        <div class="info-row"><span class="info-label">سنوات الخبرة</span><span class="info-value">${m.expyears||'—'}</span></div>
+        ${m.interests&&m.interests.length>0?`<div style="margin-top:10px;"><div style="font-size:11px;color:var(--gray-500);margin-bottom:8px;">مجالات الاهتمام</div><div>${m.interests.map(i=>`<span class="cert-badge" style="background:rgba(0,200,150,0.1);color:var(--green-dark);">⚡ ${i}</span>`).join('')}</div></div>`:''}
+      </div>
+      ${m.certs&&m.certs.length>0?`<div class="profile-card"><h3>🎓 الشهادات (${m.certs.length})</h3>${m.certs.map(c=>`<div class="info-row"><span class="info-label">${c.deg} ${c.year?'('+c.year+')':''}</span><span class="info-value">${c.field} — ${c.issuer||''}</span></div>`).join('')}</div>`:''}
+      ${m.bio?`<div class="profile-card"><h3>📝 نبذة تعريفية</h3><p style="font-size:13px;line-height:1.7;color:var(--gray-700)">${m.bio}</p></div>`:''}
+    </div>
+    ${isApproved?`
+    <div class="profile-card" style="margin-bottom:20px;">
+      <h3>🪪 بطاقة العضوية الرسمية</h3>
+      <div class="card-wrap">
+        <div class="membership-card">
+          <div class="card-header">
+            <div class="card-logo"><div class="logo-box">⚡</div><div class="logo-name"><strong>AEVTSA</strong>جمعية تقنيات المركبات الكهربائية</div></div>
+            <div class="card-type">${m.memtype}</div>
+          </div>
+          <div class="card-strip"></div>
+          <div class="card-avatar">${(m.fname||'')[0]}${(m.lname||'')[0]}</div>
+          <div class="card-name">${m.fname} ${m.lname}</div>
+          <div class="card-job">${m.jobtitle||m.memtype} ${m.org?'| '+m.org:''}</div>
+          <div class="card-footer">
+            <div>
+              <div class="card-id-section"><div class="label">رقم العضوية</div><div class="value">${m.id}</div></div>
+              <div class="card-valid">صادرة: ${m.approvalDate||m.appDate} | وزارة الطاقة</div>
+            </div>
+            <div class="card-qr">⬛</div>
+          </div>
+        </div>
+      </div>
+      <div class="print-btn-wrap">
+        <button class="btn btn-gold" onclick="window.print()">🖨️ طباعة البطاقة</button>
+        <button class="btn btn-secondary" onclick="downloadCert('${id}')">📄 تحميل شهادة العضوية</button>
+      </div>
+    </div>`:
+    `<div style="background:rgba(221,107,32,0.08);border:1px solid rgba(221,107,32,0.3);border-radius:14px;padding:20px;text-align:center;margin-bottom:20px;">
+      <div style="font-size:28px;margin-bottom:8px;">⏳</div>
+      <div style="font-weight:700;color:var(--warning);margin-bottom:4px;">طلبك قيد المراجعة</div>
+      <div style="font-size:13px;color:var(--gray-500)">بطاقة العضوية ستظهر هنا بعد قبول طلبك من قبل الإدارة</div>
+    </div>`}`;
+}
+
+function downloadCert(id) {
+  const m = window.members.find(x=>x.id===id);
+  if (!m) return;
+  const html=`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><style>
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700;900&display=swap');
+    body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f0f4f8;font-family:'Cairo',sans-serif;}
+    .cert{width:700px;background:white;border-radius:20px;padding:50px;text-align:center;box-shadow:0 10px 40px rgba(0,0,0,0.1);border:3px solid #00C896;position:relative;}
+    .cert::before{content:'';position:absolute;inset:8px;border:1px solid rgba(0,200,150,0.3);border-radius:14px;pointer-events:none;}
+    .top-bar{height:6px;background:linear-gradient(90deg,#0A1628,#00C896,#F5C842);border-radius:4px;margin-bottom:30px;}
+    .logo-row{display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:30px;}
+    .logo-icon{width:50px;height:50px;background:#00C896;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:24px;}
+    .org-name{font-size:14px;font-weight:900;color:#0A1628;text-align:right;}
+    .org-sub{font-size:11px;color:#718096;}
+    .cert-heading{font-size:28px;font-weight:900;color:#0A1628;margin-bottom:20px;}
+    .cert-text{font-size:15px;color:#4A5568;line-height:2;margin-bottom:10px;}
+    .member-name{font-size:32px;font-weight:900;color:#0A1628;margin:20px 0;border-bottom:2px solid #00C896;padding-bottom:15px;}
+    .id-box{background:#f0f4f8;border-radius:10px;padding:12px 24px;display:inline-block;margin:20px 0;}
+    .id-label{font-size:11px;color:#718096;}
+    .id-value{font-size:20px;font-weight:900;color:#00C896;letter-spacing:3px;}
+    .bottom{margin-top:30px;display:flex;justify-content:space-between;align-items:flex-end;}
+    .sig-line{width:120px;border-top:2px solid #0A1628;padding-top:8px;font-size:11px;color:#718096;}
+    .ministry{font-size:10px;color:#718096;background:#f0f4f8;padding:6px 14px;border-radius:8px;}
+  </style></head><body><div class="cert">
+    <div class="top-bar"></div>
+    <div class="logo-row"><div class="logo-icon">⚡</div><div><div class="org-name">جمعية تقنيات المركبات الكهربائية</div><div class="org-sub">AEVTSA | تحت إشراف وزارة الطاقة</div></div></div>
+    <div class="cert-heading">✨ شهادة عضوية رسمية ✨</div>
+    <div class="cert-text">نشهد بأن</div>
+    <div class="member-name">${m.fname} ${m.lname}</div>
+    <div class="cert-text">عضو ${m.memtype} في جمعية تقنيات المركبات الكهربائية<br>اعترافاً بانتمائه ومساهمته في نشر ثقافة المركبات الكهربائية في المملكة العربية السعودية</div>
+    <div class="id-box"><div class="id-label">رقم العضوية</div><div class="id-value">${m.id}</div></div>
+    <div class="bottom">
+      <div class="sig-line">رئيس مجلس الإدارة</div>
+      <div class="ministry">صادرة: ${m.approvalDate||new Date().toLocaleDateString('ar-SA')}<br>وزارة الطاقة | المملكة العربية السعودية</div>
+      <div class="sig-line">الأمين العام</div>
+    </div>
+  </div></body></html>`;
+  const blob=new Blob([html],{type:'text/html'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='شهادة_عضوية_'+m.id+'.html';
+  a.click();
+}
+
+function showFirestoreError() {
+  console.warn('Firestore connection issue - check rules');
+}
+
+document.getElementById('modalOverlay').addEventListener('click', function(e) { if(e.target===this) closeModal(); });
+</script>
+</body>
+</html>
